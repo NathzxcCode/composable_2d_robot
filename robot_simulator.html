@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Simulator</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .container { display: flex; height: 100vh; }
+        .canvas-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #16213e;
+            min-width: 400px;
+        }
+        header {
+            padding: 16px 24px;
+            background: #0f0f23;
+            border-bottom: 1px solid #2a2a4a;
+        }
+        header h1 { font-size: 1.25rem; font-weight: 600; color: #fff; }
+        #simulation-canvas { flex: 1; cursor: grab; }
+        #simulation-canvas:active { cursor: grabbing; }
+        .panel {
+            width: 320px;
+            background: #0f0f23;
+            border-left: 1px solid #2a2a4a;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .panel-header { padding: 16px; border-bottom: 1px solid #2a2a4a; }
+        .add-btn {
+            width: 100%;
+            padding: 12px;
+            background: #4a90d9;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .add-btn:hover { background: #3a7bc8; }
+        .playback-controls {
+            display: flex;
+            gap: 8px;
+            padding: 12px 16px;
+            background: #16213e;
+            border-bottom: 1px solid #2a2a4a;
+            align-items: center;
+        }
+        .playback-controls button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .playback-controls button.play-btn {
+            background: #4a9a6a;
+            color: #fff;
+        }
+        .playback-controls button.play-btn:hover { background: #3a8a5a; }
+        .playback-controls button.pause-btn {
+            background: #d94a4a;
+            color: #fff;
+        }
+        .playback-controls button.pause-btn:hover { background: #c83a3a; }
+        .playback-controls button:disabled {
+            background: #3a3a5a;
+            color: #666;
+            cursor: not-allowed;
+        }
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+        }
+        .speed-control label {
+            font-size: 0.75rem;
+            color: #888;
+        }
+        .speed-control input[type="range"] {
+            width: 80px;
+        }
+        .speed-value {
+            font-size: 0.75rem;
+            color: #aaa;
+            min-width: 35px;
+        }
+        .panel-title {
+            padding: 12px 16px;
+            background: #16213e;
+            border-bottom: 1px solid #2a2a4a;
+            font-size: 0.85rem;
+            color: #888;
+            font-weight: 500;
+        }
+        .robot-list { flex: 1; overflow-y: auto; padding: 12px; }
+        .robot-card {
+            background: #1a1a2e;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            overflow: hidden;
+            transition: all 0.2s;
+        }
+        .robot-card:hover { border-color: #3a3a5a; }
+        .robot-card.selected { border-color: #4a90d9; }
+        .robot-card.connected { border-color: #4a9a6a; }
+        .robot-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: #16213e;
+            user-select: none;
+            cursor: pointer;
+        }
+        .robot-card-header:hover { background: #1e2a4a; }
+        .robot-info { display: flex; align-items: center; gap: 10px; }
+        .layer-indicator { width: 10px; height: 10px; border-radius: 50%; background: #4a90d9; }
+        .layer-indicator.root { background: #8aba6a; }
+        .layer-indicator.connected { background: #6aba8a; }
+        .robot-name { font-weight: 500; font-size: 0.9rem; }
+        .robot-card-actions { display: flex; gap: 4px; align-items: center; }
+        .robot-card-actions button {
+            padding: 4px 8px;
+            background: #2a2a4a;
+            border: none;
+            border-radius: 4px;
+            color: #aaa;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .robot-card-actions button:hover { background: #3a3a5a; color: #fff; }
+        .robot-card-actions .delete:hover { background: #d94a4a; color: #fff; }
+        .robot-card-body { padding: 12px; border-top: 1px solid #2a2a4a; background: #1a1a2e; }
+        .control-group { margin-bottom: 12px; }
+        .control-group:last-child { margin-bottom: 0; }
+        .control-group label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        .angle-value { color: #4a90d9; font-weight: 600; font-size: 0.9rem; }
+        .slider-container { position: relative; padding: 8px 0; }
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #2a2a4a;
+            border-radius: 4px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 22px;
+            height: 22px;
+            background: #4a90d9;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        }
+        .connection-status {
+            font-size: 0.75rem;
+            color: #6aba8a;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed #2a2a4a;
+        }
+        .connection-status.disconnected { color: #aa6a5a; }
+        .hint {
+            padding: 12px;
+            font-size: 0.75rem;
+            color: #666;
+            text-align: center;
+            border-top: 1px solid #2a2a4a;
+        }
+        .empty-state { text-align: center; padding: 40px 20px; color: #666; }
+        .empty-state p { margin-bottom: 12px; }
+
+        .factor-graph-panel {
+            width: 300px;
+            background: #0f0f23;
+            border-left: 1px solid #2a2a4a;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .factor-graph-header {
+            padding: 12px 16px;
+            background: #16213e;
+            border-bottom: 1px solid #2a2a4a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .factor-graph-header h3 {
+            font-size: 0.85rem;
+            color: #888;
+            font-weight: 500;
+        }
+        .factor-graph-controls {
+            display: flex;
+            gap: 8px;
+        }
+        .factor-graph-controls button {
+            padding: 4px 10px;
+            background: #2a2a4a;
+            border: none;
+            border-radius: 4px;
+            color: #aaa;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .factor-graph-controls button:hover {
+            background: #3a3a5a;
+            color: #fff;
+        }
+        #factor-graph-canvas {
+            flex: 1;
+            cursor: grab;
+        }
+        #factor-graph-canvas:active {
+            cursor: grabbing;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="canvas-container">
+            <header>
+                <h1>Robot Simulator</h1>
+            </header>
+            <canvas id="simulation-canvas"></canvas>
+        </div>
+        <div class="panel">
+            <div class="panel-header">
+                <button class="add-btn" id="add-robot-btn">+ Add Robot</button>
+            </div>
+            <div class="playback-controls">
+                <button class="play-btn" id="play-btn">Play</button>
+                <button class="pause-btn" id="pause-btn" disabled>Pause</button>
+                <div class="speed-control">
+                    <label>Speed:</label>
+                    <input type="range" id="speed-slider" min="1" max="20" value="5">
+                    <span class="speed-value" id="speed-value">5</span>
+                </div>
+            </div>
+            <div class="panel-title">Robot Chain</div>
+            <div class="robot-list" id="robot-list">
+                <div class="empty-state">
+                    <p>No robots added yet</p>
+                    <p style="font-size: 0.7rem;">Click the button above to add your first robot</p>
+                </div>
+            </div>
+            <div class="hint">
+                Drag a robot onto another robot to connect them
+            </div>
+        </div>
+        <div class="factor-graph-panel">
+            <div class="factor-graph-header">
+                <h3>Factor Graph</h3>
+                <div class="factor-graph-controls">
+                    <button id="reset-view-btn" title="Reset view">Reset</button>
+                    <button id="zoom-in-btn" title="Zoom in">+</button>
+                    <button id="zoom-out-btn" title="Zoom out">-</button>
+                </div>
+            </div>
+            <canvas id="factor-graph-canvas"></canvas>
+        </div>
+    </div>
+
+    <script>
+        class Robot {
+            constructor(id, x, y) {
+                this.id = id;
+                this.x = x;
+                this.y = y;
+                this.angle = 0;
+                this.limbLength = 140;
+                this.limbWidth = 60;
+                this.motorRadius = 20;
+                this.connectedTo = null;
+                this.connectionOffset = { x: 0, y: 0 };
+            }
+
+            getWorldPosition() {
+                if (this.connectedTo) {
+                    const parentPos = this.connectedTo.getWorldPosition();
+                    const parentAngle = this.connectedTo.getWorldAngle();
+                    const parentAngleRad = (parentAngle * Math.PI) / 180;
+                    return {
+                        x: parentPos.x + this.connectionOffset.x * Math.cos(parentAngleRad) - this.connectionOffset.y * Math.sin(parentAngleRad),
+                        y: parentPos.y + this.connectionOffset.x * Math.sin(parentAngleRad) + this.connectionOffset.y * Math.cos(parentAngleRad)
+                    };
+                }
+                return { x: this.x, y: this.y };
+            }
+
+            getWorldAngle() {
+                if (this.connectedTo) {
+                    return this.connectedTo.getWorldAngle() + this.angle;
+                }
+                return this.angle;
+            }
+
+            getDepth() {
+                let depth = 0;
+                let current = this.connectedTo;
+                while (current) {
+                    depth++;
+                    current = current.connectedTo;
+                }
+                return depth;
+            }
+
+            containsPoint(px, py) {
+                const pos = this.getWorldPosition();
+                const dist = Math.sqrt((px - pos.x) ** 2 + (py - pos.y) ** 2);
+                return dist <= this.motorRadius + 15;
+            }
+
+            getLimbStart() {
+                return this.getWorldPosition();
+            }
+
+            getLimbEnd() {
+                const pos = this.getWorldPosition();
+                const angle = this.getWorldAngle();
+                const angleRad = (angle * Math.PI) / 180;
+                return {
+                    x: pos.x + Math.cos(angleRad) * this.limbLength,
+                    y: pos.y + Math.sin(angleRad) * this.limbLength
+                };
+            }
+
+            render(ctx, isSelected, isHovered, isConnected) {
+                const motorPos = this.getWorldPosition();
+                const angle = this.getWorldAngle();
+                const angleRad = (angle * Math.PI) / 180;
+
+                if (isConnected) {
+                    ctx.beginPath();
+                    ctx.arc(motorPos.x, motorPos.y, this.motorRadius + 15, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(106, 186, 138, 0.2)';
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(106, 186, 138, 0.6)';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                }
+
+                ctx.save();
+                ctx.translate(motorPos.x, motorPos.y);
+                ctx.rotate(angleRad);
+
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(this.limbLength, 0);
+                ctx.strokeStyle = isSelected ? '#4a90d9' : isHovered ? '#3a6090' : '#2a4a6a';
+                ctx.lineWidth = this.limbWidth;
+                ctx.lineCap = 'round';
+                ctx.stroke();
+
+                ctx.strokeStyle = isSelected ? '#6ab0ff' : '#4a7aa0';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(0, -this.limbWidth / 2, this.limbLength, this.limbWidth);
+
+                ctx.restore();
+
+                ctx.beginPath();
+                ctx.arc(motorPos.x, motorPos.y, this.motorRadius, 0, Math.PI * 2);
+                ctx.fillStyle = '#1a2a3a';
+                ctx.fill();
+                ctx.strokeStyle = '#5a8ab0';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                const indicatorAngleRad = (this.angle * Math.PI) / 180;
+                ctx.beginPath();
+                ctx.moveTo(motorPos.x, motorPos.y);
+                ctx.lineTo(
+                    motorPos.x + Math.cos(indicatorAngleRad) * this.motorRadius * 0.7,
+                    motorPos.y + Math.sin(indicatorAngleRad) * this.motorRadius * 0.7
+                );
+                ctx.strokeStyle = '#ff6b6b';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                if (isSelected) {
+                    ctx.beginPath();
+                    ctx.arc(motorPos.x, motorPos.y, this.motorRadius + 10, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'rgba(106, 176, 255, 0.5)';
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([8, 5]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+
+                const limbEnd = this.getLimbEnd();
+                ctx.beginPath();
+                ctx.arc(limbEnd.x, limbEnd.y, 12, 0, Math.PI * 2);
+                ctx.fillStyle = '#3a5a7a';
+                ctx.fill();
+                ctx.strokeStyle = '#5a7a9a';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+
+            findClosestPointOnBody(px, py) {
+                const motorPos = this.getWorldPosition();
+                const angle = this.getWorldAngle();
+                const angleRad = (angle * Math.PI) / 180;
+
+                const dx = px - motorPos.x;
+                const dy = py - motorPos.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < 1) return { x: 0, y: 0 };
+
+                if (dist < this.motorRadius + 15) {
+                    const dirX = dx / dist;
+                    const dirY = dy / dist;
+                    return { x: dirX * this.motorRadius, y: dirY * this.motorRadius };
+                }
+
+                const halfWidth = this.limbWidth / 2 + 25;
+                const halfLength = this.limbLength;
+
+                const rotatedDx = dx * Math.cos(-angleRad) - dy * Math.sin(-angleRad);
+                const rotatedDy = dx * Math.sin(-angleRad) + dy * Math.cos(-angleRad);
+
+                let localX, localY;
+                
+                if (Math.abs(rotatedDy) <= halfWidth && Math.abs(rotatedDx) <= halfLength + halfWidth) {
+                    if (rotatedDx < 0 && Math.abs(rotatedDy) < halfWidth) {
+                        localX = rotatedDx;
+                        localY = rotatedDy;
+                    } else if (rotatedDx >= 0 && rotatedDx <= halfLength && Math.abs(rotatedDy) <= halfWidth) {
+                        localX = rotatedDx;
+                        localY = Math.max(-halfWidth + 25, Math.min(halfWidth - 25, rotatedDy));
+                    } else if (rotatedDx > halfLength) {
+                        const cornerDist = Math.sqrt((rotatedDx - halfLength) ** 2 + rotatedDy ** 2);
+                        if (cornerDist > halfWidth) {
+                            const angle = Math.atan2(rotatedDy, rotatedDx - halfLength);
+                            localX = halfLength + Math.cos(angle) * halfWidth;
+                            localY = Math.sin(angle) * halfWidth;
+                        } else {
+                            localX = halfLength;
+                            localY = rotatedDy;
+                        }
+                    } else {
+                        localX = 0;
+                        localY = Math.max(-halfWidth + 25, Math.min(halfWidth - 25, rotatedDy));
+                    }
+                } else {
+                    if (rotatedDx <= 0) {
+                        localX = rotatedDx;
+                        localY = Math.sign(rotatedDy) * halfWidth;
+                    } else {
+                        localX = Math.min(rotatedDx, halfLength);
+                        localY = Math.sign(rotatedDy) * halfWidth;
+                    }
+                }
+
+                const worldX = motorPos.x + localX * Math.cos(angleRad) - localY * Math.sin(angleRad);
+                const worldY = motorPos.y + localX * Math.sin(angleRad) + localY * Math.cos(angleRad);
+
+                return { x: worldX - motorPos.x, y: worldY - motorPos.y };
+            }
+        }
+
+        class GraphNode {
+            constructor(robot) {
+                this.id = robot.id;
+                this.robot = robot;
+                this.x = Math.random() * 200 + 50;
+                this.y = Math.random() * 200 + 50;
+                this.vx = 0;
+                this.vy = 0;
+            }
+
+            get angle() {
+                return this.robot.angle;
+            }
+        }
+
+        class GraphFactor {
+            constructor(nodeA, nodeB) {
+                this.id = `${Math.min(nodeA.id, nodeB.id)}-${Math.max(nodeA.id, nodeB.id)}`;
+                this.nodeA = nodeA;
+                this.nodeB = nodeB;
+            }
+        }
+
+        class ForceDirectedGraph {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.nodes = [];
+                this.factors = [];
+                this.zoom = 1;
+                this.offsetX = 0;
+                this.offsetY = 0;
+                this.dragging = false;
+                this.dragStart = { x: 0, y: 0 };
+                this.dragNode = null;
+                this.damping = 0.85;
+                this.springLength = 80;
+                this.springStrength = 0.05;
+                this.repulsionStrength = 5000;
+                this.centerStrength = 0.02;
+
+                this.setupInteraction();
+            }
+
+            setupInteraction() {
+                this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
+                this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
+                this.canvas.addEventListener('mouseup', () => this.onMouseUp());
+                this.canvas.addEventListener('mouseleave', () => this.onMouseUp());
+                this.canvas.addEventListener('wheel', (e) => this.onWheel(e));
+            }
+
+            getMousePos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+
+            screenToWorld(sx, sy) {
+                return {
+                    x: (sx - this.offsetX) / this.zoom,
+                    y: (sy - this.offsetY) / this.zoom
+                };
+            }
+
+            onMouseDown(e) {
+                const pos = this.getMousePos(e);
+                const worldPos = this.screenToWorld(pos.x, pos.y);
+
+                for (const node of this.nodes) {
+                    const dist = Math.sqrt((worldPos.x - node.x) ** 2 + (worldPos.y - node.y) ** 2);
+                    if (dist < 25) {
+                        this.dragNode = node;
+                        this.dragging = true;
+                        this.canvas.style.cursor = 'grabbing';
+                        return;
+                    }
+                }
+
+                this.dragging = true;
+                this.dragStart = { x: pos.x - this.offsetX, y: pos.y - this.offsetY };
+                this.canvas.style.cursor = 'grabbing';
+            }
+
+            onMouseMove(e) {
+                const pos = this.getMousePos(e);
+
+                if (this.dragNode) {
+                    const worldPos = this.screenToWorld(pos.x, pos.y);
+                    this.dragNode.x = worldPos.x;
+                    this.dragNode.y = worldPos.y;
+                    this.dragNode.vx = 0;
+                    this.dragNode.vy = 0;
+                } else if (this.dragging) {
+                    this.offsetX = pos.x - this.dragStart.x;
+                    this.offsetY = pos.y - this.dragStart.y;
+                } else {
+                    let hovering = false;
+                    const worldPos = this.screenToWorld(pos.x, pos.y);
+                    for (const node of this.nodes) {
+                        const dist = Math.sqrt((worldPos.x - node.x) ** 2 + (worldPos.y - node.y) ** 2);
+                        if (dist < 25) {
+                            hovering = true;
+                            break;
+                        }
+                    }
+                    this.canvas.style.cursor = hovering ? 'grab' : 'default';
+                }
+            }
+
+            onMouseUp() {
+                this.dragging = false;
+                this.dragNode = null;
+                this.canvas.style.cursor = 'default';
+            }
+
+            onWheel(e) {
+                e.preventDefault();
+                const pos = this.getMousePos(e);
+                const worldBefore = this.screenToWorld(pos.x, pos.y);
+
+                if (e.deltaY < 0) {
+                    this.zoom *= 1.1;
+                } else {
+                    this.zoom /= 1.1;
+                }
+
+                this.zoom = Math.max(0.3, Math.min(3, this.zoom));
+
+                const worldAfter = this.screenToWorld(pos.x, pos.y);
+                this.offsetX += (worldAfter.x - worldBefore.x) * this.zoom;
+                this.offsetY += (worldAfter.y - worldBefore.y) * this.zoom;
+            }
+
+            updateFromRobots(robots) {
+                const nodeMap = new Map();
+
+                for (const robot of robots) {
+                    let node = this.nodes.find(n => n.id === robot.id);
+                    if (!node) {
+                        node = new GraphNode(robot);
+                        this.nodes.push(node);
+                    } else {
+                        node.robot = robot;
+                    }
+                    nodeMap.set(robot.id, node);
+                }
+
+                this.nodes = this.nodes.filter(n => robots.some(r => r.id === n.id));
+
+                this.factors = [];
+                for (const robot of robots) {
+                    if (robot.connectedTo) {
+                        const nodeA = nodeMap.get(robot.id);
+                        const nodeB = nodeMap.get(robot.connectedTo.id);
+                        if (nodeA && nodeB) {
+                            const existing = this.factors.find(f => 
+                                (f.nodeA === nodeA && f.nodeB === nodeB) ||
+                                (f.nodeA === nodeB && f.nodeB === nodeA)
+                            );
+                            if (!existing) {
+                                this.factors.push(new GraphFactor(nodeA, nodeB));
+                            }
+                        }
+                    }
+                }
+            }
+
+            step() {
+                if (this.nodes.length === 0) return false;
+
+                const maxVelocity = 50;
+                const minDistance = 30;
+                let hasMotion = false;
+
+                for (const node of this.nodes) {
+                    if (Math.abs(node.vx) > 0.1 || Math.abs(node.vy) > 0.1) {
+                        hasMotion = true;
+                    }
+
+                    let fx = 0, fy = 0;
+
+                    for (const other of this.nodes) {
+                        if (other === node) continue;
+                        const dx = node.x - other.x;
+                        const dy = node.y - other.y;
+                        let dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < minDistance) dist = minDistance;
+                        const force = this.repulsionStrength / (dist * dist);
+                        fx += (dx / dist) * force;
+                        fy += (dy / dist) * force;
+                    }
+
+                    for (const factor of this.factors) {
+                        let other = null;
+                        if (factor.nodeA === node) other = factor.nodeB;
+                        else if (factor.nodeB === node) other = factor.nodeA;
+                        else continue;
+
+                        const dx = other.x - node.x;
+                        const dy = other.y - node.y;
+                        let dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < minDistance) dist = minDistance;
+                        const displacement = dist - this.springLength;
+                        const force = this.springStrength * displacement;
+                        fx += (dx / dist) * force;
+                        fy += (dy / dist) * force;
+                    }
+
+                    const centerX = this.canvas.width / 2 / this.zoom;
+                    const centerY = this.canvas.height / 2 / this.zoom;
+                    fx += (centerX - node.x) * this.centerStrength;
+                    fy += (centerY - node.y) * this.centerStrength;
+
+                    node.vx = (node.vx + fx) * this.damping;
+                    node.vy = (node.vy + fy) * this.damping;
+
+                    node.vx = Math.max(-maxVelocity, Math.min(maxVelocity, node.vx));
+                    node.vy = Math.max(-maxVelocity, Math.min(maxVelocity, node.vy));
+
+                    if (node !== this.dragNode) {
+                        node.x += node.vx;
+                        node.y += node.vy;
+                    }
+                }
+
+                if (!hasMotion && this.nodes.length > 0) {
+                    for (const node of this.nodes) {
+                        if (Math.abs(node.vx) > 0.01 || Math.abs(node.vy) > 0.01) {
+                            hasMotion = true;
+                            break;
+                        }
+                    }
+                }
+
+                return hasMotion;
+            }
+
+            render() {
+                const ctx = this.ctx;
+                ctx.fillStyle = '#0f0f23';
+                ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                ctx.save();
+                ctx.translate(this.offsetX, this.offsetY);
+                ctx.scale(this.zoom, this.zoom);
+
+                ctx.strokeStyle = '#1e2a4a';
+                ctx.lineWidth = 1;
+                const gridSize = 30;
+                for (let x = 0; x < this.canvas.width / this.zoom; x += gridSize) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, this.canvas.height / this.zoom);
+                    ctx.stroke();
+                }
+                for (let y = 0; y < this.canvas.height / this.zoom; y += gridSize) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(this.canvas.width / this.zoom, y);
+                    ctx.stroke();
+                }
+
+                for (const factor of this.factors) {
+                    ctx.beginPath();
+                    ctx.moveTo(factor.nodeA.x, factor.nodeA.y);
+                    ctx.lineTo(factor.nodeB.x, factor.nodeB.y);
+                    ctx.strokeStyle = '#4a6a5a';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([4, 4]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    const midX = (factor.nodeA.x + factor.nodeB.x) / 2;
+                    const midY = (factor.nodeA.y + factor.nodeB.y) / 2;
+                    ctx.fillStyle = '#4a8a6a';
+                    ctx.fillRect(midX - 8, midY - 8, 16, 16);
+                    ctx.strokeStyle = '#6aba8a';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(midX - 8, midY - 8, 16, 16);
+                }
+
+                for (const node of this.nodes) {
+                    ctx.beginPath();
+                    ctx.arc(node.x, node.y, 28, 0, Math.PI * 2);
+                    ctx.fillStyle = '#2a4a6a';
+                    ctx.fill();
+                    ctx.strokeStyle = '#4a90d9';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(node.id.toString(), node.x, node.y - 10);
+
+                    ctx.fillStyle = '#4a90d9';
+                    ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
+                    ctx.fillText(`${Math.round(node.angle)}°`, node.x, node.y + 8);
+                }
+
+                ctx.restore();
+            }
+
+            resetView() {
+                this.zoom = 1;
+                this.offsetX = 0;
+                this.offsetY = 0;
+            }
+        }
+
+        class RobotSimulator {
+            constructor() {
+                this.robots = [];
+                this.selectedRobot = null;
+                this.hoveredRobot = null;
+                this.dragging = false;
+                this.dragTarget = null;
+                this.nextId = 1;
+                
+                // Server update frequency in milliseconds
+                this.serverUpdateFrequencyMs = 1000;
+                
+                this.socket = null;
+                this.connected = false;
+                this.updateInterval = this.serverUpdateFrequencyMs;
+                this.lastGraphUpdate = 0;
+                
+                this.isPlaying = false;
+                this.playSpeed = 5;
+                this.targetAngles = {};
+                
+                this.canvas = document.getElementById('simulation-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.robotListEl = document.getElementById('robot-list');
+                this.addBtn = document.getElementById('add-robot-btn');
+
+                this.factorGraphCanvas = document.getElementById('factor-graph-canvas');
+                this.factorGraph = new ForceDirectedGraph(this.factorGraphCanvas);
+
+                this.init();
+            }
+
+            init() {
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+
+                this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
+                this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
+                this.canvas.addEventListener('mouseup', () => this.onMouseUp());
+                this.canvas.addEventListener('mouseleave', () => this.onMouseUp());
+
+                this.addBtn.addEventListener('click', () => this.addRobot());
+
+                document.getElementById('reset-view-btn').addEventListener('click', () => {
+                    this.factorGraph.resetView();
+                });
+                document.getElementById('zoom-in-btn').addEventListener('click', () => {
+                    this.factorGraph.zoom = Math.min(3, this.factorGraph.zoom * 1.2);
+                });
+                document.getElementById('zoom-out-btn').addEventListener('click', () => {
+                    this.factorGraph.zoom = Math.max(0.3, this.factorGraph.zoom / 1.2);
+                });
+
+                document.getElementById('play-btn').addEventListener('click', () => this.startPlayback());
+                document.getElementById('pause-btn').addEventListener('click', () => this.stopPlayback());
+                document.getElementById('speed-slider').addEventListener('input', (e) => {
+                    this.playSpeed = parseInt(e.target.value);
+                    document.getElementById('speed-value').textContent = this.playSpeed;
+                });
+
+                this.connectToServer();
+                this.render();
+                this.animate();
+            }
+
+            connectToServer() {
+                fetch('http://localhost:5000/api/simulation_state')
+                    .then(response => {
+                        if (response.ok) {
+                            console.log('Connected to GBP server');
+                            this.connected = true;
+                        } else {
+                            console.log('Could not connect to server, running in offline mode');
+                            this.connected = false;
+                        }
+                    })
+                    .catch(() => {
+                        console.log('Could not connect to server, running in offline mode');
+                        this.connected = false;
+                    });
+            }
+
+            sendFactorGraph() {
+                if (!this.connected) return;
+                
+                const limbs = this.robots.map(r => {
+                    const worldPos = r.getWorldPosition();
+                    const worldAngle = r.getWorldAngle();
+                    const limbEnd = r.getLimbEnd();
+                    
+                    return {
+                        id: r.id,
+                        local_angle: r.angle,
+                        global_angle: worldAngle,
+                        position: { x: worldPos.x, y: worldPos.y },
+                        endpoint: { x: limbEnd.x, y: limbEnd.y },
+                        limb_length: r.limbLength,
+                        depth: r.getDepth()
+                    };
+                });
+                
+                const connections = [];
+                for (const robot of this.robots) {
+                    if (robot.connectedTo) {
+                        connections.push({
+                            child_id: robot.id,
+                            parent_id: robot.connectedTo.id,
+                            depth: robot.getDepth(),
+                            calibration: {
+                                offset_x: robot.connectionOffset.x,
+                                offset_y: robot.connectionOffset.y
+                            }
+                        });
+                    }
+                }
+                
+                const simulationData = { limbs, connections };
+                
+                fetch('http://localhost:5000/api/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(simulationData)
+                }).catch(() => {});
+            }
+
+            calculateDistance(robotA, robotB) {
+                const posA = robotA.getWorldPosition();
+                const angleA = robotA.getWorldAngle();
+                const angleRad = (angleA * Math.PI) / 180;
+                
+                const limbEndX = posA.x + Math.cos(angleRad) * robotA.limbLength;
+                const limbEndY = posA.y + Math.sin(angleRad) * robotA.limbLength;
+                
+                const posB = robotB.getWorldPosition();
+                
+                const dx = limbEndX - posB.x;
+                const dy = limbEndY - posB.y;
+                
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+
+            resize() {
+                const container = this.canvas.parentElement;
+                this.canvas.width = container.clientWidth;
+                this.canvas.height = container.clientHeight - 56;
+
+                const graphContainer = this.factorGraphCanvas.parentElement;
+                this.factorGraphCanvas.width = graphContainer.clientWidth;
+                this.factorGraphCanvas.height = graphContainer.clientHeight - 45;
+
+                this.render();
+            }
+
+            getMousePos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            }
+
+            onMouseDown(e) {
+                const pos = this.getMousePos(e);
+                const robot = this.findRobotAtPoint(pos.x, pos.y);
+
+                if (robot) {
+                    this.selectRobot(robot);
+                    this.dragging = true;
+                    this.dragTarget = robot;
+
+                    if (robot.connectedTo) {
+                        robot.connectedTo = null;
+                        robot.x = pos.x;
+                        robot.y = pos.y;
+                    }
+
+                    this.canvas.style.cursor = 'grabbing';
+                    this.updateRobotList();
+                } else {
+                    this.selectRobot(null);
+                }
+            }
+
+            onMouseMove(e) {
+                const pos = this.getMousePos(e);
+
+                if (this.dragging && this.dragTarget) {
+                    this.dragTarget.x = pos.x;
+                    this.dragTarget.y = pos.y;
+                    this.render();
+                } else {
+                    this.hoveredRobot = this.findRobotAtPoint(pos.x, pos.y);
+                    this.canvas.style.cursor = this.hoveredRobot ? 'grab' : 'default';
+                }
+            }
+
+            onMouseUp() {
+                if (this.dragging && this.dragTarget) {
+                    const robot = this.dragTarget;
+                    const pos = { x: robot.x, y: robot.y };
+                    this.tryConnectToNearbyRobot(robot, pos.x, pos.y);
+                    this.updateRobotList();
+                    this.render();
+                }
+                this.dragging = false;
+                this.dragTarget = null;
+                this.canvas.style.cursor = 'default';
+            }
+
+            findRobotAtPoint(px, py) {
+                for (const robot of this.robots) {
+                    if (robot.containsPoint(px, py)) {
+                        return robot;
+                    }
+                }
+                return null;
+            }
+
+            isDescendantOf(candidate, parent) {
+                let current = candidate.connectedTo;
+                while (current) {
+                    if (current === parent) return true;
+                    current = current.connectedTo;
+                }
+                return false;
+            }
+
+            tryConnectToNearbyRobot(robot, px, py) {
+                if (robot.connectedTo) return;
+
+                const candidates = [];
+
+                for (const other of this.robots) {
+                    if (other === robot) continue;
+                    if (other.connectedTo === robot) continue;
+                    if (this.isDescendantOf(other, robot)) continue;
+
+                    const closest = other.findClosestPointOnBody(px, py);
+                    const otherPos = other.getWorldPosition();
+
+                    const worldClosestX = otherPos.x + closest.x;
+                    const worldClosestY = otherPos.y + closest.y;
+
+                    const dist = Math.sqrt((px - worldClosestX) ** 2 + (py - worldClosestY) ** 2);
+
+                    if (dist < 50) {
+                        candidates.push({
+                            robot: other,
+                            dist: dist,
+                            closest: closest,
+                            depth: other.getDepth()
+                        });
+                    }
+                }
+
+                if (candidates.length === 0) return;
+
+                candidates.sort((a, b) => b.depth - a.depth);
+
+                const best = candidates[0];
+                const parentAngle = best.robot.getWorldAngle();
+                const parentAngleRad = (parentAngle * Math.PI) / 180;
+
+                const localX = best.closest.x * Math.cos(-parentAngleRad) - best.closest.y * Math.sin(-parentAngleRad);
+                const localY = best.closest.x * Math.sin(-parentAngleRad) + best.closest.y * Math.cos(-parentAngleRad);
+
+                robot.connectedTo = best.robot;
+                robot.connectionOffset = { x: localX, y: localY };
+            }
+
+            selectRobot(robot) {
+                this.selectedRobot = robot;
+                this.updateRobotList();
+                this.render();
+            }
+
+            addRobot() {
+                const x = this.canvas.width / 2 + (Math.random() - 0.5) * 150;
+                const y = this.canvas.height / 2 + (Math.random() - 0.5) * 150;
+
+                const robot = new Robot(this.nextId++, x, y);
+
+                this.robots.push(robot);
+                this.selectRobot(robot);
+                this.updateRobotList();
+                this.render();
+            }
+
+            removeRobot(robot) {
+                const index = this.robots.indexOf(robot);
+                if (index > -1) {
+                    this.robots.splice(index, 1);
+                }
+
+                this.robots.forEach(r => {
+                    if (r.connectedTo === robot) {
+                        r.connectedTo = null;
+                    }
+                });
+
+                if (this.selectedRobot === robot) {
+                    this.selectedRobot = null;
+                }
+
+                this.updateRobotList();
+                this.render();
+            }
+
+            updateRobotAngle(robot, angle) {
+                robot.angle = angle;
+                this.render();
+            }
+
+            getChainPath(robot) {
+                const path = [];
+                let current = robot;
+                while (current) {
+                    path.unshift(current.id);
+                    current = current.connectedTo;
+                }
+                return path.join(' -> ');
+            }
+
+            updateRobotList() {
+                if (this.robots.length === 0) {
+                    this.robotListEl.innerHTML = `
+                        <div class="empty-state">
+                            <p>No robots added yet</p>
+                            <p style="font-size: 0.7rem;">Click the button above to add your first robot</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const sortedByDepth = [...this.robots].sort((a, b) => a.getDepth() - b.getDepth());
+
+                let html = '';
+                sortedByDepth.forEach(robot => {
+                    const isSelected = this.selectedRobot === robot;
+                    const isConnected = robot.connectedTo !== null;
+                    const depth = robot.getDepth();
+                    const chainPath = this.getChainPath(robot);
+
+                    let connectionInfo = '';
+                    if (robot.connectedTo) {
+                        connectionInfo = `<div class="connection-status">Chain: ${chainPath}</div>`;
+                    } else {
+                        connectionInfo = `<div class="connection-status disconnected">Root robot - drag to move</div>`;
+                    }
+
+                    html += `
+                        <div class="robot-card ${isSelected ? 'selected' : ''} ${isConnected ? 'connected' : ''}" data-id="${robot.id}">
+                            <div class="robot-card-header">
+                                <div class="robot-info">
+                                    <span class="layer-indicator ${isConnected ? 'connected' : 'root'}"></span>
+                                    <span class="robot-name">Robot ${robot.id}</span>
+                                    <span style="font-size: 0.7rem; color: #555;">(Layer ${depth})</span>
+                                </div>
+                                <div class="robot-card-actions">
+                                    <button class="delete" onclick="simulator.removeRobot(simulator.robots.find(r => r.id === ${robot.id}))" title="Delete">x</button>
+                                </div>
+                            </div>
+                            <div class="robot-card-body">
+                                <div class="control-group">
+                                    <label>
+                                        <span>Motor Angle</span>
+                                        <span class="angle-value" id="angle-${robot.id}">${Math.round(robot.angle)}deg</span>
+                                    </label>
+                                    <div class="slider-container">
+                                        <input type="range" id="slider-${robot.id}" min="0" max="360" value="${robot.angle}"
+                                            oninput="simulator.updateRobotAngle(simulator.robots.find(r => r.id === ${robot.id}), parseFloat(this.value)); document.getElementById('angle-${robot.id}').textContent = this.value + 'deg'">
+                                    </div>
+                                </div>
+                                ${connectionInfo}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                this.robotListEl.innerHTML = html;
+            }
+
+            render() {
+                this.ctx.fillStyle = '#16213e';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                const gridSize = 30;
+                this.ctx.strokeStyle = '#1e2a4a';
+                this.ctx.lineWidth = 1;
+
+                for (let x = 0; x < this.canvas.width; x += gridSize) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, 0);
+                    this.ctx.lineTo(x, this.canvas.height);
+                    this.ctx.stroke();
+                }
+
+                for (let y = 0; y < this.canvas.height; y += gridSize) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, y);
+                    this.ctx.lineTo(this.canvas.width, y);
+                    this.ctx.stroke();
+                }
+
+                const sortedByDepth = [...this.robots].sort((a, b) => a.getDepth() - b.getDepth());
+
+                sortedByDepth.forEach(robot => {
+                    const isConnected = robot.connectedTo !== null;
+                    robot.render(
+                        this.ctx,
+                        robot === this.selectedRobot,
+                        robot === this.hoveredRobot,
+                        isConnected
+                    );
+                });
+            }
+
+            animate() {
+                if (this.isPlaying && this.robots.length > 0) {
+                    for (const robot of this.robots) {
+                        if (!(robot.id in this.targetAngles)) {
+                            this.targetAngles[robot.id] = Math.random() * 360;
+                        }
+                        
+                        const targetAngle = this.targetAngles[robot.id];
+                        const currentAngle = robot.angle;
+                        let diff = targetAngle - currentAngle;
+                        
+                        if (diff > 180) diff -= 360;
+                        if (diff < -180) diff += 360;
+                        
+                        const step = this.playSpeed;
+                        
+                        if (Math.abs(diff) < step) {
+                            robot.angle = targetAngle;
+                            this.targetAngles[robot.id] = Math.random() * 360;
+                        } else {
+                            robot.angle += Math.sign(diff) * step;
+                        }
+                        
+                        if (robot.angle < 0) robot.angle += 360;
+                        robot.angle = robot.angle % 360;
+                        
+                        const angleEl = document.getElementById(`angle-${robot.id}`);
+                        const sliderEl = document.getElementById(`slider-${robot.id}`);
+                        if (angleEl) angleEl.textContent = `${Math.round(robot.angle)}deg`;
+                        if (sliderEl) sliderEl.value = robot.angle;
+                    }
+                    
+                    this.render();
+                }
+                
+                this.factorGraph.updateFromRobots(this.robots);
+                
+                const now = Date.now();
+                if (!this.lastGraphUpdate || now - this.lastGraphUpdate > this.updateInterval) {
+                    this.sendFactorGraph();
+                    this.lastGraphUpdate = now;
+                }
+                
+                if (this.factorGraph.nodes.length > 0) {
+                    const hasMotion = this.factorGraph.step();
+                    this.factorGraph.render();
+                    
+                    if (hasMotion) {
+                        requestAnimationFrame(() => this.animate());
+                    } else {
+                        setTimeout(() => this.animate(), 50);
+                    }
+                } else {
+                    this.factorGraph.render();
+                    requestAnimationFrame(() => this.animate());
+                }
+            }
+
+            startPlayback() {
+                this.isPlaying = true;
+                document.getElementById('play-btn').disabled = true;
+                document.getElementById('pause-btn').disabled = false;
+            }
+
+            stopPlayback() {
+                this.isPlaying = false;
+                document.getElementById('play-btn').disabled = false;
+                document.getElementById('pause-btn').disabled = true;
+            }
+        }
+
+        const simulator = new RobotSimulator();
+    </script>
+</body>
+</html>
