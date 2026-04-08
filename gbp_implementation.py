@@ -195,16 +195,16 @@ data2 = {
 
 data3 = {
     'limbs': [
-        {'id': 1, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 558, 'y': 395}, 
-         'endpoint': {'x': 698, 'y': 395}, 'limb_length': 140, 'depth': 1}, 
-        {'id': 2, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 431, 'y': 386}, 
-         'endpoint': {'x': 571, 'y': 386}, 'limb_length': 140, 'depth': 0}, 
-        {'id': 3, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 683, 'y': 372}, 
-         'endpoint': {'x': 823, 'y': 372}, 'limb_length': 140, 'depth': 2}
+        {'id': 1, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 0, 'y': 0}, 
+         'endpoint': {'x': 140, 'y': 0}, 'limb_length': 140, 'depth': 0}, 
+        {'id': 2, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 112, 'y': 14}, 
+         'endpoint': {'x': 252, 'y': 14}, 'limb_length': 140, 'depth': 1}, 
+        {'id': 3, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 248, 'y': -4}, 
+         'endpoint': {'x': 388, 'y': -4}, 'limb_length': 140, 'depth': 2}
     ], 
     'connections': [
-        {'child_id': 1, 'parent_id': 2, 'depth': 1, 'calibration': {'offset_x': 127, 'offset_y': 9}}, 
-        {'child_id': 3, 'parent_id': 1, 'depth': 2, 'calibration': {'offset_x': 125, 'offset_y': -23}}
+        {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 112, 'offset_y': 14}}, 
+        {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 136, 'offset_y': -18}}
     ]
 }
 

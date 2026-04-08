@@ -888,6 +888,10 @@
             sendFactorGraph() {
                 if (!this.connected) return;
                 
+                // Find the base limb (depth 0 - has no parent)
+                const baseLimb = this.robots.find(r => r.getDepth() === 0);
+                const baseOrigin = baseLimb ? baseLimb.getWorldPosition() : { x: 0, y: 0 };
+                
                 const limbs = this.robots.map(r => {
                     const worldPos = r.getWorldPosition();
                     const worldAngle = r.getWorldAngle();
@@ -897,8 +901,9 @@
                         id: r.id,
                         local_angle: r.angle,
                         global_angle: worldAngle,
-                        position: { x: worldPos.x, y: worldPos.y },
-                        endpoint: { x: limbEnd.x, y: limbEnd.y },
+                        // Positions relative to base limb's motor position (origin at base link)
+                        position: { x: worldPos.x - baseOrigin.x, y: worldPos.y - baseOrigin.y },
+                        endpoint: { x: limbEnd.x - baseOrigin.x, y: limbEnd.y - baseOrigin.y },
                         limb_length: r.limbLength,
                         depth: r.getDepth()
                     };
