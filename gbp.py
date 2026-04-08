@@ -42,6 +42,16 @@ class FactorGraph:
         self.edge_map = {} # key: child limb id, value: parent limb id
         self.root_node = None
         self.gbp_settings = gbp_settings
+        self._all_var_nodes = []  # Flat list for iteration
+
+    def get_all_var_nodes(self):
+        """Return flattened list of all variable nodes (handles temporal lists)."""
+        return self._all_var_nodes.copy()
+
+    def _add_to_flat_list(self, node):
+        """Internal helper to maintain flat list."""
+        node.node_index = len(self._all_var_nodes)
+        self._all_var_nodes.append(node)
 
     def add_var_node(self,
                     id: int,
@@ -62,6 +72,8 @@ class FactorGraph:
         else:
             self.var_nodes[id].append(new_node)
 
+        self._add_to_flat_list(new_node)
+
     def add_factor(self,
                     measurement: torch.Tensor,
                     meas_model: MeasModel,
@@ -74,7 +86,7 @@ class FactorGraph:
             var.adj_factors.append(self.factors[-1])
 
     def update_all_beliefs(self) -> None:
-        for var_node in self.var_nodes:
+        for var_node in self.get_all_var_nodes():
             var_node.update_belief()
 
     def compute_all_messages(self, apply_dropout: bool = True) -> None:
@@ -143,19 +155,19 @@ class FactorGraph:
         if eval_point is None:
             energy = sum([factor.get_energy() for factor in self.factors])
         else:
-            var_dofs = torch.tensor([v.dofs for v in self.var_nodes])
+            var_dofs = torch.tensor([v.dofs for v in self.get_all_var_nodes()])
             var_ix = torch.cat([torch.tensor([0]), torch.cumsum(var_dofs, dim=0)[:-1]])
             energy = 0.
             for f in self.factors:
-                local_eval_point = torch.cat([eval_point[var_ix[v.variableID]: var_ix[v.variableID] + v.dofs] for v in f.adj_var_nodes])
+                local_eval_point = torch.cat([eval_point[var_ix[v.node_index]: var_ix[v.node_index] + v.dofs] for v in f.adj_var_nodes])
                 energy += f.get_energy(local_eval_point)
         if include_priors:
-            prior_energy = sum([var.get_prior_energy() for var in self.var_nodes])
+            prior_energy = sum([var.get_prior_energy() for var in self.get_all_var_nodes()])
             energy += prior_energy
         return energy
 
     def get_joint_dim(self) -> int:
-        return sum([var.dofs for var in self.var_nodes])
+        return sum([var.dofs for var in self.get_all_var_nodes()])
 
     def get_joint(self) -> Gaussian:
         """
@@ -166,10 +178,10 @@ class FactorGraph:
         joint = Gaussian(dim)
 
         # Priors
-        var_ix = [0] * len(self.var_nodes)
+        var_ix = [0] * len(self.get_all_var_nodes())
         counter = 0
-        for var in self.var_nodes:
-            var_ix[var.variableID] = int(counter)
+        for var in self.get_all_var_nodes():
+            var_ix[var.node_index] = int(counter)
             joint.eta[counter:counter + var.dofs] += var.prior.eta
             joint.lam[counter:counter + var.dofs, counter:counter + var.dofs] += var.prior.lam
             counter += var.dofs
@@ -178,20 +190,20 @@ class FactorGraph:
         for factor in self.factors:
             factor_ix = 0
             for adj_var_node in factor.adj_var_nodes:
-                vID = adj_var_node.variableID
+                node_idx = adj_var_node.node_index
                 # Diagonal contribution of factor
-                joint.eta[var_ix[vID]:var_ix[vID] + adj_var_node.dofs] += \
+                joint.eta[var_ix[node_idx]:var_ix[node_idx] + adj_var_node.dofs] += \
                     factor.factor.eta[factor_ix:factor_ix + adj_var_node.dofs]
-                joint.lam[var_ix[vID]:var_ix[vID] + adj_var_node.dofs, var_ix[vID]:var_ix[vID] + adj_var_node.dofs] += \
+                joint.lam[var_ix[node_idx]:var_ix[node_idx] + adj_var_node.dofs, var_ix[node_idx]:var_ix[node_idx] + adj_var_node.dofs] += \
                     factor.factor.lam[factor_ix:factor_ix + adj_var_node.dofs, factor_ix:factor_ix + adj_var_node.dofs]
                 other_factor_ix = 0
                 for other_adj_var_node in factor.adj_var_nodes:
-                    if other_adj_var_node.variableID > adj_var_node.variableID:
-                        other_vID = other_adj_var_node.variableID
+                    if other_adj_var_node.node_index > adj_var_node.node_index:
+                        other_idx = other_adj_var_node.node_index
                         # Off diagonal contributions of factor
-                        joint.lam[var_ix[vID]:var_ix[vID] + adj_var_node.dofs, var_ix[other_vID]:var_ix[other_vID] + other_adj_var_node.dofs] += \
+                        joint.lam[var_ix[node_idx]:var_ix[node_idx] + adj_var_node.dofs, var_ix[other_idx]:var_ix[other_idx] + other_adj_var_node.dofs] += \
                             factor.factor.lam[factor_ix:factor_ix + adj_var_node.dofs, other_factor_ix:other_factor_ix + other_adj_var_node.dofs]
-                        joint.lam[var_ix[other_vID]:var_ix[other_vID] + other_adj_var_node.dofs, var_ix[vID]:var_ix[vID] + adj_var_node.dofs] += \
+                        joint.lam[var_ix[other_idx]:var_ix[other_idx] + other_adj_var_node.dofs, var_ix[node_idx]:var_ix[node_idx] + adj_var_node.dofs] += \
                             factor.factor.lam[other_factor_ix:other_factor_ix + other_adj_var_node.dofs, factor_ix:factor_ix + adj_var_node.dofs]
                     other_factor_ix += other_adj_var_node.dofs
                 factor_ix += adj_var_node.dofs
@@ -206,23 +218,23 @@ class FactorGraph:
 
     def belief_means(self) -> torch.Tensor:
         """ Get an array containing all current estimates of belief means. """
-        return torch.cat([var.belief.mean() for var in self.var_nodes])
+        return torch.cat([var.belief.mean() for var in self.get_all_var_nodes()])
 
     def belief_covs(self) -> List[torch.Tensor]:
         """ Get a list containing all current estimates of belief covariances. """
-        covs = [var.belief.cov() for var in self.var_nodes]
+        covs = [var.belief.cov() for var in self.get_all_var_nodes()]
         return covs
 
     def get_gradient(self, include_priors: bool = True) -> torch.Tensor:
         """ Return gradient wrt the total energy. """
         dim = self.get_joint_dim()
         grad = torch.zeros(dim)
-        var_dofs = torch.tensor([v.dofs for v in self.var_nodes])
+        var_dofs = torch.tensor([v.dofs for v in self.get_all_var_nodes()])
         var_ix = torch.cat([torch.tensor([0]), torch.cumsum(var_dofs, dim=0)[:-1]])
 
         if include_priors:
-            for v in self.var_nodes:
-                grad[var_ix[v.variableID]:var_ix[v.variableID] + v.dofs] += (v.belief.mean() - v.prior.mean()) @ v.prior.cov()
+            for v in self.get_all_var_nodes():
+                grad[var_ix[v.node_index]:var_ix[v.node_index] + v.dofs] += (v.belief.mean() - v.prior.mean()) @ v.prior.cov()
 
         for f in self.factors:
             r = f.get_residual()
@@ -231,15 +243,15 @@ class FactorGraph:
 
             factor_ix = 0
             for adj_var_node in f.adj_var_nodes:
-                vID = adj_var_node.variableID
-                grad[var_ix[vID]:var_ix[vID] + adj_var_node.dofs] += local_grad[factor_ix: factor_ix + adj_var_node.dofs]
+                node_idx = adj_var_node.node_index  # Use node_index, not variableID
+                grad[var_ix[node_idx]:var_ix[node_idx] + adj_var_node.dofs] += local_grad[factor_ix: factor_ix + adj_var_node.dofs]
                 factor_ix += adj_var_node.dofs
         return grad
 
     def gradient_descent_step(self, lr: float = 1e-3) -> None:
         grad = self.get_gradient()
         i = 0
-        for v in self.var_nodes:
+        for v in self.get_all_var_nodes():
             v.belief.eta = v.belief.lam @ (v.belief.mean() - lr * grad[i: i+v.dofs])
             i += v.dofs
         self.linearise_all_factors()
@@ -259,7 +271,7 @@ class FactorGraph:
         delta_x = torch.inverse(A) @ b_mat
 
         i = 0  # apply update
-        for v in self.var_nodes:
+        for v in self.get_all_var_nodes():
             v.belief.eta = v.belief.lam @ (v.belief.mean() + delta_x[i: i+v.dofs])
             i += v.dofs
         self.linearise_all_factors()
@@ -272,7 +284,7 @@ class FactorGraph:
             return lambda_lm
         else:  # undo update
             i = 0  # apply update
-            for v in self.var_nodes:
+            for v in self.get_all_var_nodes():
                 v.belief.eta = v.belief.lam @ (v.belief.mean() - delta_x[i: i+v.dofs])
                 i += v.dofs
             self.linearise_all_factors()
@@ -283,8 +295,8 @@ class FactorGraph:
         print("\nFactor Graph:")
         print(f"# Variable nodes: {len(self.var_nodes)}")
         if not brief:
-            for i, var in enumerate(self.var_nodes):
-                print(f"Variable {i}: connects to factors {[f.factorID for f in var.adj_factors]}")
+            for i, var in enumerate(self.get_all_var_nodes()):
+                print(f"Variable {i} (ID {var.variableID}): connects to factors {[f.factorID for f in var.adj_factors]}")
                 print(f"    dofs: {var.dofs}")
                 print(f"    prior mean: {var.prior.mean().numpy()}")
                 print(f"    prior covariance: diagonal sigma {torch.diag(var.prior.cov()).numpy()}")

@@ -1,4 +1,5 @@
 import torch
+import math
 from gbp_utilities import MeasModel, SquaredLoss, TukeyLoss, HuberLoss
 from gbp import GBPSettings, FactorGraph
 ### custom factors designed for the composable 2d robot problem ###
@@ -80,17 +81,18 @@ def update_factor_graph(data, fg):
         # add limb nodes to the factor graph (global x, y, theta of endpoint)
         fg.add_var_node(id=limb_id,
                         dofs=3,
-                        prior_mean=torch.tensor([limb["limb_length"]*limb["depth"], 0., 0.]),
-                        prior_diag_cov=torch.tensor([10., 10., 2.]),
+                        prior_mean=torch.tensor([limb["endpoint"]["x"], limb["endpoint"]["y"], math.radians(limb["global_angle"])]),
+                        prior_diag_cov=torch.tensor([1000., 1000., 10.]),  # Large variance = weak prior
                         properties=limb)
         
         # add calibration nodes for non-base limbs
         if fg.var_nodes.get("calib"+limb_id) is None:
             if limb["depth"] != 0:
+                calib = limb.get("calibration", {})
                 fg.add_var_node(id="calib"+limb_id,
                                 dofs=2,
-                                prior_mean=torch.tensor([0., 0.]), 
-                                prior_diag_cov=torch.tensor([5.0, 5.0]),
+                                prior_mean=torch.tensor([calib.get("offset_x", 0.), calib.get("offset_y", 0.)]), 
+                                prior_diag_cov=torch.tensor([1000., 1000.]),  # Large variance = weak prior
                                 properties={})
         # add factor to base node to anchor its position
         if limb["depth"] == 0:
@@ -106,8 +108,10 @@ def update_factor_graph(data, fg):
         child_node = fg.var_nodes[child_id][-1]
         calib_node = fg.var_nodes["calib"+child_id][-1]   # Fixed: use last node (temporal compatible)
         angle_measure = child_node.properties["local_angle"]
+        # Convert degrees to radians for the measurement
+        angle_measure_rad = math.radians(angle_measure)
         # add angle measurement factors
-        fg.add_factor(measurement=torch.tensor([angle_measure]), 
+        fg.add_factor(measurement=torch.tensor([angle_measure_rad]), 
                       meas_model=angle_model,
                       adj_var_nodes=[parent_node, child_node],
                       properties={})
@@ -120,16 +124,16 @@ def update_factor_graph(data, fg):
 # Setup
 # ===================================================================
 gbp_settings = GBPSettings(
-    damping=0.1,
-    beta=0.01,
-    num_undamped_iters=1,
-    min_linear_iters=1,
+    damping=0.5,
+    beta=1.0,
+    num_undamped_iters=3,
+    min_linear_iters=5,
     dropout=0.0,
 )
-# loss functions for the factors
-angle_loss = HuberLoss(1, torch.tensor([0.01]), 2.0)
-kinematic_loss = HuberLoss(2, torch.tensor([0.05, 0.05]), 2.0)
-anchor_loss = SquaredLoss(2, torch.tensor([1e-6, 1e-6]))
+# loss functions for the factors - normalized variance scales
+angle_loss = HuberLoss(1, torch.tensor([1.0]), 2.0)  # was 0.01
+kinematic_loss = HuberLoss(2, torch.tensor([5.0, 5.0]), 2.0)  # was 0.05
+anchor_loss = SquaredLoss(2, torch.tensor([1.0, 1.0]))  # was 1e-6
 # Instantiate the models
 angle_model = AngleMeasurementModel(angle_loss)
 kinematic_model = KinematicCalibModel(kinematic_loss, L=140)
@@ -154,3 +158,5 @@ update_factor_graph(data, fg)
 print("Factor graph updated successfully!")
 print(f"Variables: {len(fg.var_nodes)}")
 print(f"Factors: {len(fg.factors)}")
+
+fg.gbp_solve(n_iters=50)
