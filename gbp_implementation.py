@@ -1,7 +1,22 @@
 import torch
 import math
+import random
 from gbp_utilities import MeasModel, SquaredLoss, TukeyLoss, HuberLoss
 from gbp import GBPSettings, FactorGraph
+
+# =============================================================================
+# Noise Control Parameters
+# =============================================================================
+# Angle measurement noise standard deviation in degrees
+# Set to 0.0 to disable noise (deterministic)
+ANGLE_NOISE_STD_DEG = 2.0
+
+def add_noise_to_angle(angle_rad):
+    """Add Gaussian noise to an angle measurement."""
+    if ANGLE_NOISE_STD_DEG > 0:
+        noise_rad = random.gauss(0, math.radians(ANGLE_NOISE_STD_DEG))
+        return angle_rad + noise_rad
+    return angle_rad
 ### custom factors designed for the composable 2d robot problem ###
 #Custom Factor 1: Angle Measurement
 def angle_meas_fn(x: torch.Tensor):
@@ -81,7 +96,8 @@ def update_factor_graph(data, fg):
         # add limb nodes to the factor graph (global x, y, theta of endpoint)
         fg.add_var_node(id=limb_id,
                         dofs=3,
-                        prior_mean=torch.tensor([limb["endpoint"]["x"], limb["endpoint"]["y"], math.radians(limb["global_angle"])]),
+                        # prior_mean=torch.tensor([limb["endpoint"]["x"], limb["endpoint"]["y"], math.radians(limb["global_angle"])]),
+                        prior_mean=torch.tensor([limb["limb_length"]*limb["depth"], 0., 0.]),
                         prior_diag_cov=torch.tensor([1000., 1000., 10.]),  # Large variance = weak prior
                         properties=limb)
         
@@ -108,10 +124,11 @@ def update_factor_graph(data, fg):
         child_node = fg.var_nodes[child_id][-1]
         calib_node = fg.var_nodes["calib"+child_id][-1]   # Fixed: use last node (temporal compatible)
         angle_measure = child_node.properties["local_angle"]
-        # Convert degrees to radians for the measurement
+        # Convert degrees to radians and add noise
         angle_measure_rad = math.radians(angle_measure)
+        angle_measure_rad_noisy = add_noise_to_angle(angle_measure_rad)
         # add angle measurement factors
-        fg.add_factor(measurement=torch.tensor([angle_measure_rad]), 
+        fg.add_factor(measurement=torch.tensor([angle_measure_rad_noisy]), 
                       meas_model=angle_model,
                       adj_var_nodes=[parent_node, child_node],
                       properties={})
@@ -154,9 +171,47 @@ data = {
         {'child_id': 3, 'parent_id': 1, 'depth': 2, 'calibration': {'offset_x': 140, 'offset_y': 0}}
     ]
 }
-update_factor_graph(data, fg)
+
+data2 = {
+    'limbs': [
+        {'id': 1, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 404, 'y': 394}, 
+         'endpoint': {'x': 544, 'y': 394}, 'limb_length': 140, 'depth': 0}, 
+        {'id': 2, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 544, 'y': 395},
+         'endpoint': {'x': 684, 'y': 395}, 'limb_length': 140, 'depth': 1}, 
+        {'id': 3, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 664, 'y': 395}, 
+         'endpoint': {'x': 804, 'y': 395}, 'limb_length': 140, 'depth': 2}, 
+        {'id': 4, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 801, 'y': 417}, 
+         'endpoint': {'x': 941, 'y': 417}, 'limb_length': 140, 'depth': 3}, 
+        {'id': 5, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 941, 'y': 440}, 
+         'endpoint': {'x': 1081, 'y': 440}, 'limb_length': 140, 'depth': 4}
+    ], 
+    'connections': [
+        {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 140, 'offset_y': 1}}, 
+        {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 120, 'offset_y': 0}}, 
+        {'child_id': 4, 'parent_id': 3, 'depth': 3, 'calibration': {'offset_x': 137, 'offset_y': 22}}, 
+        {'child_id': 5, 'parent_id': 4, 'depth': 4, 'calibration': {'offset_x': 140, 'offset_y': 23}}
+    ]
+}
+
+data3 = {
+    'limbs': [
+        {'id': 1, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 558, 'y': 395}, 
+         'endpoint': {'x': 698, 'y': 395}, 'limb_length': 140, 'depth': 1}, 
+        {'id': 2, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 431, 'y': 386}, 
+         'endpoint': {'x': 571, 'y': 386}, 'limb_length': 140, 'depth': 0}, 
+        {'id': 3, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 683, 'y': 372}, 
+         'endpoint': {'x': 823, 'y': 372}, 'limb_length': 140, 'depth': 2}
+    ], 
+    'connections': [
+        {'child_id': 1, 'parent_id': 2, 'depth': 1, 'calibration': {'offset_x': 127, 'offset_y': 9}}, 
+        {'child_id': 3, 'parent_id': 1, 'depth': 2, 'calibration': {'offset_x': 125, 'offset_y': -23}}
+    ]
+}
+
+update_factor_graph(data3, fg)
 print("Factor graph updated successfully!")
 print(f"Variables: {len(fg.var_nodes)}")
 print(f"Factors: {len(fg.factors)}")
 
 fg.gbp_solve(n_iters=50)
+fg.print()

@@ -49,7 +49,7 @@ class RobotHandler(http.server.SimpleHTTPRequestHandler):
             
             try:
                 data = json.loads(body)
-                # print(data)
+                print(data)
                 
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
