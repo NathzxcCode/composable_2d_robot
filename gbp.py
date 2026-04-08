@@ -298,8 +298,8 @@ class FactorGraph:
             for i, var in enumerate(self.get_all_var_nodes()):
                 print(f"Variable {i} (ID {var.variableID}): connects to factors {[f.factorID for f in var.adj_factors]}")
                 print(f"    dofs: {var.dofs}")
-                print(f"    prior mean: {var.belief.mean().numpy()}")
-                print(f"    prior covariance: diagonal sigma {torch.diag(var.belief.cov()).numpy()}")
+                print(f"    belief mean: {var.belief.mean().numpy()}")
+                print(f"    belief covariance: diagonal sigma {torch.diag(var.belief.cov()).numpy()}")
         print(f"# Factors: {len(self.factors)}")
         if not brief:
             for i, factor in enumerate(self.factors):
