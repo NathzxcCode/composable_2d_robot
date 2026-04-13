@@ -212,5 +212,8 @@ print("Factor graph updated successfully!")
 print(f"Variables: {len(fg.var_nodes)}")
 print(f"Factors: {len(fg.factors)}")
 
-fg.gbp_solve(n_iters=50)
+# fg.gbp_solve(n_iters=50)
+for i in range(100):
+    fg.gradient_descent_step(lr=1e-2)
+print(f"Energy: {fg.energy()}")
 fg.print()
