@@ -210,6 +210,75 @@ class EndpointModel(MeasModel):
         MeasModel.__init__(self, endpoint_meas_fn, endpoint_jac_fn, loss, L_last)
         self.linear = False
 
+
+## distance measurement factor endpoint-endpoint ##
+## TO:DO figure out how the measurement it inserted into this function whether though class or other
+def distance_meas_fn(x: torch.Tensor, s1_local: torch.Tensor, s2_local: torch.Tensor):
+    """
+    Distance Residual: r = ||P2 - P1|| - d_measured
+    x: [x1, y1, th1, x2, y2, th2]
+    s1_local, s2_local: [x, y] offsets of sensors relative to their joints
+    """
+    # 1. Calculate global sensor positions
+    # P1 = R1 * s1 + t1
+    cos1, sin1 = torch.cos(x[2]), torch.sin(x[2])
+    p1_x = x[0] + cos1 * s1_local[0] - sin1 * s1_local[1]
+    p1_y = x[1] + sin1 * s1_local[0] + cos1 * s1_local[1]
+
+    # P2 = R2 * s2 + t2
+    cos2, sin2 = torch.cos(x[5]), torch.sin(x[5])
+    p2_x = x[3] + cos2 * s2_local[0] - sin2 * s2_local[1]
+    p2_y = x[4] + sin2 * s2_local[0] + cos2 * s2_local[1]
+
+    # 2. Predicted Euclidean distance
+    d_pred = torch.sqrt((p2_x - p1_x)**2 + (p2_y - p1_y)**2)
+    
+    # The actual measurement (d_measured) is usually passed via args or subtracted outside
+    return d_pred
+
+def distance_jac_fn(x: torch.Tensor, s1_local: torch.Tensor, s2_local: torch.Tensor):
+    """
+    Jacobian for Distance Factor (1x6 matrix).
+    Relates [dx1, dy1, dth1, dx2, dy2, dth2] to change in distance.
+    """
+    # Re-calculate points for the gradient
+    cos1, sin1 = torch.cos(x[2]), torch.sin(x[2])
+    p1 = torch.tensor([x[0] + cos1 * s1_local[0] - sin1 * s1_local[1],
+                       x[1] + sin1 * s1_local[0] + cos1 * s1_local[1]])
+
+    cos2, sin2 = torch.cos(x[5]), torch.sin(x[5])
+    p2 = torch.tensor([x[3] + cos2 * s2_local[0] - sin2 * s2_local[1],
+                       x[4] + sin2 * s2_local[0] + cos2 * s2_local[1]])
+
+    diff = p2 - p1
+    d = torch.norm(diff)
+    
+    # Unit vector from P1 to P2 (the direction the distance grows)
+    u = diff / (d + 1e-6)
+
+    # Gradient wrt P1 is -u, wrt P2 is u
+    # Now use chain rule: d(dist)/d(theta) = d(dist)/dP * dP/d(theta)
+    
+    # Derivatives of P1 wrt [x1, y1, th1]
+    dp1_dth = torch.tensor([-sin1 * s1_local[0] - cos1 * s1_local[1],
+                             cos1 * s1_local[0] - sin1 * s1_local[1]])
+    
+    j_n1 = torch.tensor([-u[0], -u[1], torch.dot(-u, dp1_dth)])
+
+    # Derivatives of P2 wrt [x2, y2, th2]
+    dp2_dth = torch.tensor([-sin2 * s2_local[0] - cos2 * s2_local[1],
+                             cos2 * s2_local[0] - sin2 * s2_local[1]])
+    
+    j_n2 = torch.tensor([u[0], u[1], torch.dot(u, dp2_dth)])
+
+    return torch.cat([j_n1, j_n2]).view(1, 6)
+
+class DistanceMeasurementModel(MeasModel):
+    def __init__(self, loss: TukeyLoss, s1: torch.Tensor, s2: torch.Tensor) -> None:
+        # Args: sensor 1 local offset, sensor 2 local offset
+        MeasModel.__init__(self, distance_meas_fn, distance_jac_fn, loss, s1, s2)
+        self.linear = False
+
 ## joint angle measurement factor joint1-joint2-angle_measurement ##
 def angle_meas_fn(x: torch.Tensor):
     # x is composed of two nodes: [x1, y1, theta1, x2, y2, theta2]
