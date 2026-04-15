@@ -3,6 +3,7 @@ from gbp_utilities import MeasModel, SquaredLoss, HuberLoss, TukeyLoss
 
 def get_SE2_matrix(x, y, theta):
     """Helper to build an SE(2) 3x3 transformation matrix."""
+    theta = torch.tensor([theta]) if not torch.is_tensor(theta) else theta
     cos_t = torch.cos(theta)
     sin_t = torch.sin(theta)
     return torch.tensor([
@@ -65,7 +66,7 @@ def SE2_adjoint(T):
 
 
 ## kinematics factor joint-joint ##
-def kin_calib_meas_fn(x: torch.Tensor, L: float, theta_joint: float):
+def kin_calib_meas_fn(x: torch.Tensor, L: float, theta_joint: float): # 
     """
     Residual function using the SE(2) Log Map.
     x is [x1, y1, theta1, Cx, Cy, Ctheta, x2, y2, theta2]
@@ -81,7 +82,7 @@ def kin_calib_meas_fn(x: torch.Tensor, L: float, theta_joint: float):
     L_link = get_SE2_matrix(torch.tensor(L), 0, 0) # Limb along local x-axis
     
     # 3. Predict Node 2: T_pred = N1 * J1 * L * C2
-    T_pred = N1 @ J1 @ L_link @ C2
+    T_pred = N1 @ L_link @ C2 @ J1
     
     # 4. Calculate relative error on manifold: Delta_T = N2^-1 * T_pred
     # Note: Invert N2 to compare T_pred in the local frame of N2
@@ -91,7 +92,7 @@ def kin_calib_meas_fn(x: torch.Tensor, L: float, theta_joint: float):
     # 5. Residual is the Log map (tangent space vector)
     return SE2_log_map(delta_T)
 
-def kin_calib_jac_fn(x: torch.Tensor, L: float, theta_joint: float):
+def kin_calib_jac_fn(x: torch.Tensor, L: float, theta_joint: float): #  
     """
     Analytic Jacobian based on Lie Group Adjoints.
     The Jacobian is 3x9 (3-DOF residual, 9-DOF state).
@@ -116,16 +117,16 @@ def kin_calib_jac_fn(x: torch.Tensor, L: float, theta_joint: float):
     
     # Jacobian wrt Calibration (C2)
     # The perturbation is at the end of the chain, so we map it into N2's frame
-    T_chain = N2_inv @ N1 @ J1 @ L_link
+    T_chain = N2_inv @ N1 @ L_link
     J_c2 = SE2_adjoint(T_chain)
     
     # Concatenate into a 3x9 matrix
     return torch.cat([J_n1, J_c2, J_n2], dim=1)
 
 class KinematicCalibModel(MeasModel):
-    def __init__(self, loss: HuberLoss, L: float, theta_joint: float) -> None:
+    def __init__(self, loss: HuberLoss, L: float, theta_joint: float) -> None: # 
         # Pass L and theta_joint as extra args for the meas/jac functions
-        MeasModel.__init__(self, kin_calib_meas_fn, kin_calib_jac_fn, loss, L, theta_joint)
+        MeasModel.__init__(self, kin_calib_meas_fn, kin_calib_jac_fn, loss, L, theta_joint) #
         self.linear = False
 
 ## anchor factor origin-base_joint ##
@@ -279,20 +280,55 @@ class DistanceMeasurementModel(MeasModel):
         MeasModel.__init__(self, distance_meas_fn, distance_jac_fn, loss, s1, s2)
         self.linear = False
 
+
 ## joint angle measurement factor joint1-joint2-angle_measurement ##
-def angle_meas_fn(x: torch.Tensor):
-    # x is composed of two nodes: [x1, y1, theta1, x2, y2, theta2]
-    # We predict the encoder measurement: theta2 - theta1
-    diff = x[5] - x[2]
+# def angle_meas_fn(x: torch.Tensor):
+#     # x is composed of two nodes: [x1, y1, theta1, x2, y2, theta2]
+#     # We predict the encoder measurement: theta2 - theta1
+#     diff = x[5] - x[2]
     
-    # Wrap the angle to [-pi, pi] to prevent 360-degree error jumps
-    return torch.tensor([torch.atan2(torch.sin(diff), torch.cos(diff))])
-def angle_jac_fn(x: torch.Tensor):
-    # The Jacobian is a 1x6 matrix. 
-    # Derivative with respect to theta1 (index 2) is -1
-    # Derivative with respect to theta2 (index 5) is 1
+#     # Wrap the angle to [-pi, pi] to prevent 360-degree error jumps
+#     return torch.tensor([torch.atan2(torch.sin(diff), torch.cos(diff))])
+# def angle_jac_fn(x: torch.Tensor):
+#     # The Jacobian is a 1x6 matrix. 
+#     # Derivative with respect to theta1 (index 2) is -1
+#     # Derivative with respect to theta2 (index 5) is 1
+#     return torch.tensor([[0., 0., -1., 0., 0., 1.]])
+# class AngleMeasurementModel(MeasModel):
+#     def __init__(self, loss: SquaredLoss) -> None:
+#         MeasModel.__init__(self, angle_meas_fn, angle_jac_fn, loss)
+#         self.linear = True  # Linear relations between angles
+
+
+## joint angle measurement factor joint1-joint2-angle_measurement ##
+def angle_meas_fn(x: torch.Tensor, measured_angle: torch.Tensor):
+    """
+    x: [x1, y1, th1, x2, y2, th2]
+    measured_angle: the constant encoder reading (rad)
+    """
+    # 1. Predicted relative angle from current node states
+    predicted_diff = x[5] - x[2]
+    
+    # 2. Raw residual (error)
+    error = predicted_diff - measured_angle
+    
+    # 3. Wrap the error to [-pi, pi] 
+    # This ensures the solver takes the "short way" around the circle
+    wrapped_error = torch.atan2(torch.sin(error), torch.cos(error))
+    
+    return wrapped_error.view(1)
+
+def angle_jac_fn(x: torch.Tensor, measured_angle: torch.Tensor):
+    # The derivative of the wrapped error is still 1 and -1 
+    # everywhere except exactly at the wrap-around point.
     return torch.tensor([[0., 0., -1., 0., 0., 1.]])
+
 class AngleMeasurementModel(MeasModel):
-    def __init__(self, loss: SquaredLoss) -> None:
-        MeasModel.__init__(self, angle_meas_fn, angle_jac_fn, loss)
-        self.linear = True  # Linear relations between angles
+    def __init__(self, loss: HuberLoss, measured_angle: torch.Tensor) -> None:
+        # Pass the actual measurement (constant) into the model args
+        MeasModel.__init__(self, angle_meas_fn, angle_jac_fn, loss, measured_angle)
+        
+        # CRITICAL: Set to False. 
+        # The jump at pi means the solver MUST re-evaluate the 
+        # residual logic at every iteration.
+        self.linear = False

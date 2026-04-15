@@ -300,6 +300,7 @@
                 this.limbLength = 140;
                 this.limbWidth = 60;
                 this.motorRadius = 20;
+                this.sensorOffset = 120;
                 this.connectedTo = null;
                 this.connectionOffset = { x: 0, y: 0 };
             }
@@ -351,6 +352,20 @@
                 return {
                     x: pos.x + Math.cos(angleRad) * this.limbLength,
                     y: pos.y + Math.sin(angleRad) * this.limbLength
+                };
+            }
+
+            getSensorOffset() {
+                return { x: this.sensorOffset, y: 0 };
+            }
+
+            getSensorPosition() {
+                const pos = this.getWorldPosition();
+                const angle = this.getWorldAngle();
+                const angleRad = (angle * Math.PI) / 180;
+                return {
+                    x: pos.x + Math.cos(angleRad) * this.sensorOffset,
+                    y: pos.y + Math.sin(angleRad) * this.sensorOffset
                 };
             }
 
@@ -424,6 +439,26 @@
                 ctx.strokeStyle = '#5a7a9a';
                 ctx.lineWidth = 2;
                 ctx.stroke();
+
+                // Draw sensor position (smaller circle near the tip)
+                const sensorPos = this.getSensorPosition();
+                ctx.beginPath();
+                ctx.arc(sensorPos.x, sensorPos.y, 8, 0, Math.PI * 2);
+                ctx.fillStyle = '#8a4a9a';
+                ctx.fill();
+                ctx.strokeStyle = '#aa6aaa';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Draw dashed line from joint to sensor
+                ctx.beginPath();
+                ctx.setLineDash([4, 4]);
+                ctx.moveTo(motorPos.x, motorPos.y);
+                ctx.lineTo(sensorPos.x, sensorPos.y);
+                ctx.strokeStyle = '#6a4a6a';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.setLineDash([]);
             }
 
             findClosestPointOnBody(px, py) {
@@ -904,6 +939,7 @@
                         // Positions relative to base limb's motor position (origin at base link)
                         position: { x: worldPos.x - baseOrigin.x, y: worldPos.y - baseOrigin.y },
                         endpoint: { x: limbEnd.x - baseOrigin.x, y: limbEnd.y - baseOrigin.y },
+                        sensor_offset: { x: r.sensorOffset, y: 0 },
                         limb_length: r.limbLength,
                         depth: r.getDepth()
                     };
@@ -912,6 +948,13 @@
                 const connections = [];
                 for (const robot of this.robots) {
                     if (robot.connectedTo) {
+                        // Calculate distance from this sensor to parent's sensor
+                        const sensorPos = robot.getSensorPosition();
+                        const parentSensorPos = robot.connectedTo.getSensorPosition();
+                        const dx = parentSensorPos.x - sensorPos.x;
+                        const dy = parentSensorPos.y - sensorPos.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
                         connections.push({
                             child_id: robot.id,
                             parent_id: robot.connectedTo.id,
@@ -919,7 +962,8 @@
                             calibration: {
                                 offset_x: robot.connectionOffset.x,
                                 offset_y: robot.connectionOffset.y
-                            }
+                            },
+                            distance: distance
                         });
                     }
                 }
@@ -1220,6 +1264,22 @@
                         isConnected
                     );
                 });
+
+                // Draw sensor-to-sensor distance lines
+                for (const robot of this.robots) {
+                    if (robot.connectedTo) {
+                        const sensorPos = robot.getSensorPosition();
+                        const parentSensorPos = robot.connectedTo.getSensorPosition();
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(parentSensorPos.x, parentSensorPos.y);
+                        this.ctx.lineTo(sensorPos.x, sensorPos.y);
+                        this.ctx.strokeStyle = 'rgba(138, 74, 154, 0.5)';
+                        this.ctx.lineWidth = 2;
+                        this.ctx.setLineDash([6, 4]);
+                        this.ctx.stroke();
+                        this.ctx.setLineDash([]);
+                    }
+                }
             }
 
             animate() {
