@@ -136,8 +136,8 @@ def anchor_meas_fn(x: torch.Tensor, T_origin: torch.Tensor = None):
     x: [x1, y1, theta1] (the node we are anchoring)
     T_origin: 3x3 SE(2) matrix (defaults to Identity if None)
     """
-    if T_origin is None:
-        T_origin = torch.eye(3)
+    # get origin matrix 
+    T_origin = get_SE2_matrix(T_origin[0], T_origin[1], T_origin[2])
 
     # 1. Convert current state to Pose Matrix
     N1 = get_SE2_matrix(x[0], x[1], x[2])

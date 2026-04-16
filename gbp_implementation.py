@@ -43,9 +43,10 @@ def update_factor_graph(data, fg):
                                 properties={})
         # add anchor to base node
         if limb["depth"] == 0:
+            base_angle = math.radians(limb["local_angle"]) # The base motor reading
             base_node = fg.var_nodes[limb_id][-1]  # last node is current node
             fg.add_factor(measurement=torch.tensor([0., 0., 0.]), # minimise the risidual direct from factor
-                          meas_model=AnchorModel(anchor_loss, T_origin=torch.eye(3)),
+                          meas_model=AnchorModel(anchor_loss, T_origin=torch.tensor([0., 0., base_angle])),
                           adj_var_nodes=[base_node],
                           properties={})
     for connection in connections:
@@ -130,12 +131,52 @@ data1 = {
         {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 136, 'offset_y': 4}, 'distance': 136.1732877351051}, 
         {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 135, 'offset_y': 3}, 'distance': 134.87544045014846}]}
 
-update_factor_graph(data, fg)
+data2 = {
+    'limbs': [
+        {'id': 1, 'local_angle': 5, 'global_angle': 5, 'position': {'x': 0, 'y': 0}, 
+        'endpoint': {'x': 139.46725773284436, 'y': 12.201803984672154}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 0}, 
+        {'id': 2, 'local_angle': 0, 'global_angle': 5, 'position': {'x': 135.13385596948683, 'y': 15.837959806048502}, 
+        'endpoint': {'x': 274.6011137023312, 'y': 28.039763790720656}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 1}, 
+        {'id': 3, 'local_angle': 357, 'global_angle': 362, 'position': {'x': 269.3586729836295, 'y': 30.592569171257537}, 
+        'endpoint': {'x': 409.2733887663029, 'y': 35.47849870960761}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 2}], 
+    'connections': [
+        {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 136, 'offset_y': 4}, 'distance': 136.05881081355966}, 
+        {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 135, 'offset_y': 3}, 'distance': 134.87544045014846}]}
+
+data3 = {
+    'limbs': [
+        {'id': 1, 'local_angle': 5, 'global_angle': 5, 'position': {'x': 0, 'y': 0}, 
+         'endpoint': {'x': 139.46725773284436, 'y': 12.201803984672154}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 0}, 
+        {'id': 2, 'local_angle': 2, 'global_angle': 7, 'position': {'x': 135.13385596948683, 'y': 15.837959806048502}, 
+         'endpoint': {'x': 274.0903171992719, 'y': 32.899667882769165}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 1}, 
+        {'id': 3, 'local_angle': 357, 'global_angle': 364, 'position': {'x': 268.7619784108499, 'y': 35.2679596206674}, 
+         'endpoint': {'x': 408.42094544722534, 'y': 45.03386594484493}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 2}], 
+    'connections': [
+        {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 136, 'offset_y': 4}, 'distance': 136.17328773510513}, 
+        {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 135, 'offset_y': 3}, 'distance': 134.87544045014857}]}
+
+data4 = {
+    'limbs': [
+        {'id': 1, 'local_angle': 5, 'global_angle': 5, 'position': {'x': 0, 'y': 0}, 
+         'endpoint': {'x': 139.46725773284436, 'y': 12.201803984672154}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 0}, 
+        {'id': 2, 'local_angle': 2, 'global_angle': 7, 'position': {'x': 135.13385596948683, 'y': 15.837959806048502}, 
+         'endpoint': {'x': 274.0903171992719, 'y': 32.899667882769165}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 1}, 
+        {'id': 3, 'local_angle': 350, 'global_angle': 357, 'position': {'x': 268.7619784108499, 'y': 35.2679596206674}, 
+         'endpoint': {'x': 408.57011327649025, 'y': 27.940925746655182}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 2}], 
+    'connections': [
+        {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 136, 'offset_y': 4}, 'distance': 136.17328773510513}, 
+        {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 135, 'offset_y': 3}, 'distance': 134.3662205426787}]}
+
+update_factor_graph(data1, fg)
+update_factor_graph(data2, fg)
+update_factor_graph(data3, fg)
+update_factor_graph(data4, fg)
+
 print("Factor graph updated successfully!")
 print(f"Variables: {len(fg.var_nodes)}")
 print(f"Factors: {len(fg.factors)}")
 
-fg.gbp_solve(n_iters=25)
+fg.gbp_solve(n_iters=40)
 # for i in range(100):
 #     fg.gradient_descent_step(lr=0.0001)
 # print(f"Energy: {fg.energy()}")

@@ -301,17 +301,17 @@ class FactorGraph:
                 print(f"    belief mean: {var.belief.mean().numpy()}")
                 print(f"    belief covariance: diagonal sigma {torch.diag(var.belief.cov()).numpy()}")
         print(f"# Factors: {len(self.factors)}")
-        if not brief:
-            for i, factor in enumerate(self.factors):
-                if factor.meas_model.linear:
-                    print("Linear", end =" ")
-                else:
-                    print("Nonlinear", end =" ")
-                print(f"Factor {i}: connects to variables {factor.adj_vIDs}")
-                print(f"    measurement model: {type(factor.meas_model).__name__},"
-                    f" {type(factor.meas_model.loss).__name__},"
-                    f" diagonal sigma {torch.diag(factor.meas_model.loss.effective_cov).detach().numpy()}")
-                print(f"    measurement: {factor.measurement.numpy()}")
+        # if not brief:
+        #     for i, factor in enumerate(self.factors):
+        #         if factor.meas_model.linear:
+        #             print("Linear", end =" ")
+        #         else:
+        #             print("Nonlinear", end =" ")
+        #         print(f"Factor {i}: connects to variables {factor.adj_vIDs}")
+        #         print(f"    measurement model: {type(factor.meas_model).__name__},"
+        #             f" {type(factor.meas_model.loss).__name__},"
+        #             f" diagonal sigma {torch.diag(factor.meas_model.loss.effective_cov).detach().numpy()}")
+        #         print(f"    measurement: {factor.measurement.numpy()}")
         print("\n")
 
 
