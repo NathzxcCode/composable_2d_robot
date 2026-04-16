@@ -16,39 +16,87 @@ def add_noise_to_angle(angle_rad):
         return angle_rad + noise_rad
     return angle_rad
 
+def forward_kinematics_step(prev_conn_pose, joint_angle_rad, limb_length):
+    """
+    Calculates the pose of the current limb and the next joint location.
+    
+    Args:
+        prev_conn_pose: Tensor [x, y, theta] of the previous joint/connection.
+        joint_angle_rad: The motor measurement (relative rotation).
+        limb_length: The nominal length of the bone.
+        
+    Returns:
+        current_limb_pose: Tensor [x, y, theta] (The start/base of the limb)
+        next_conn_pose: Tensor [x, y, theta] (The end of the limb/next joint)
+    """
+    # 1. Calculate the current limb's orientation
+    # The limb points in the direction of the previous joint + the motor's turn
+    joint_angle_rad = torch.tensor(joint_angle_rad)
+    current_theta = prev_conn_pose[2] + joint_angle_rad
+
+    # If you want to keep nodes near [-pi, pi] for human readability 
+    # ONLY do it using atan2 to ensure the jump is handled smoothly
+    # during the INITIALIZATION phase.
+    current_theta = torch.atan2(torch.sin(current_theta), torch.cos(current_theta))
+    
+    # The base of the current limb is the same x,y as the previous connection
+    current_limb_pose = torch.tensor([
+        prev_conn_pose[0],
+        prev_conn_pose[1],
+        current_theta
+    ])
+    
+    # 2. Project forward along the limb length to find the next connection
+    # We move 'limb_length' units in the direction of current_theta
+    next_x = current_limb_pose[0] + limb_length * torch.cos(current_theta)
+    next_y = current_limb_pose[1] + limb_length * torch.sin(current_theta)
+    
+    # The orientation at the next connection matches the limb's orientation
+    next_conn_pose = torch.tensor([next_x, next_y, current_theta])
+    
+    return current_limb_pose, next_conn_pose
+
 
 def update_factor_graph(data, fg):
     limbs = data["limbs"]
     connections = data["connections"]
     limbs = sorted(limbs, key=lambda x: x['depth'])
     connections = sorted(connections, key=lambda x: x['depth'])
+
+    next_conn_pose = torch.tensor([0., 0., 0.])
+    position_cov = torch.tensor([1000., 1000., 0.01])
+
     for limb in limbs:
-        limb_id = str(limb["id"])
-        
+        id = str(limb["id"])
+        length = limb["limb_length"]
+        theta_rad = math.radians(limb["local_angle"])
+
+        position_estimate, next_conn_pose = forward_kinematics_step(next_conn_pose, theta_rad, length)
+        print(id, position_estimate, next_conn_pose)
+
         # add limb nodes to the factor graph (global x, y, theta of endpoint)
-        fg.add_var_node(id=limb_id,
+        fg.add_var_node(id=id,
                         dofs=3,
-                        prior_mean=torch.tensor([limb["position"]["x"], limb["position"]["y"], math.radians(limb["global_angle"])]),
-                        # prior_mean=torch.tensor([limb["limb_length"]*limb["depth"], 0., 0.]),
-                        prior_diag_cov=torch.tensor([0.1, 0.1, 0.01]),  # Large variance = weak prior
+                        prior_mean=position_estimate,
+                        prior_diag_cov=position_cov,  # Large variance = weak prior
                         properties=limb)
         
         # add calibration nodes for non-base limbs
-        if fg.var_nodes.get("calib"+limb_id) is None:
+        if fg.var_nodes.get("calib"+id) is None:
             if limb["depth"] != 0:
-                fg.add_var_node(id="calib"+limb_id,
+                fg.add_var_node(id="calib"+id,
                                 dofs=3,
                                 prior_mean=torch.tensor([0., 0., 0.]), 
-                                prior_diag_cov=torch.tensor([100., 100., 0.1]),  # Large variance = weak prior
+                                prior_diag_cov=torch.tensor([1000., 1000., 0.01]),  # Large variance = weak prior
                                 properties={})
         # add anchor to base node
         if limb["depth"] == 0:
-            base_angle = math.radians(limb["local_angle"]) # The base motor reading
-            base_node = fg.var_nodes[limb_id][-1]  # last node is current node
+            base_node = fg.var_nodes[id][-1]  # last node is current node
             fg.add_factor(measurement=torch.tensor([0., 0., 0.]), # minimise the risidual direct from factor
-                          meas_model=AnchorModel(anchor_loss, T_origin=torch.tensor([0., 0., base_angle])),
+                          meas_model=AnchorModel(anchor_loss, T_origin=position_estimate), # pos_estimate = [0,0,theta]
                           adj_var_nodes=[base_node],
                           properties={})
+            
     for connection in connections:
         parent_id = str(connection["parent_id"])
         child_id = str(connection["child_id"])
@@ -59,9 +107,9 @@ def update_factor_graph(data, fg):
         parent_limb_length = parent_node.properties["limb_length"]
 
         angle_measure = child_node.properties["local_angle"]
-        distance_measure = connection["distance"]
         angle_measure_rad = math.radians(angle_measure) # Convert degrees to radians and add noise
-
+        distance_measure = connection["distance"]
+        
         # add angle measurement factors
         # fg.add_factor(measurement=torch.tensor([angle_measure_rad]), 
         #               meas_model=AngleMeasurementModel(angle_loss),
@@ -176,7 +224,7 @@ print("Factor graph updated successfully!")
 print(f"Variables: {len(fg.var_nodes)}")
 print(f"Factors: {len(fg.factors)}")
 
-fg.gbp_solve(n_iters=40)
+fg.gbp_solve(n_iters=200)
 # for i in range(100):
 #     fg.gradient_descent_step(lr=0.0001)
 # print(f"Energy: {fg.energy()}")
