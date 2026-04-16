@@ -1,6 +1,7 @@
 import torch
 import math
 import random
+import json
 from gbp_utilities import MeasModel, SquaredLoss, TukeyLoss, HuberLoss
 from gbp import GBPSettings, FactorGraph
 from gbp_factors import KinematicCalibModel, AnchorModel, DistanceMeasurementModel, EndpointModel, AngleMeasurementModel
@@ -215,16 +216,23 @@ data4 = {
         {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 136, 'offset_y': 4}, 'distance': 136.17328773510513}, 
         {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 135, 'offset_y': 3}, 'distance': 134.3662205426787}]}
 
-update_factor_graph(data1, fg)
-update_factor_graph(data2, fg)
-update_factor_graph(data3, fg)
-update_factor_graph(data4, fg)
+# update_factor_graph(data1, fg)
+# update_factor_graph(data2, fg)
+# update_factor_graph(data3, fg)
+# update_factor_graph(data4, fg)
+
+N = 15
+with open("pose_data.json", "r") as f:
+    poses = json.load(f)
+# Use first N poses
+for pose in poses[:N]:
+    update_factor_graph(pose, fg)
 
 print("Factor graph updated successfully!")
 print(f"Variables: {len(fg.var_nodes)}")
 print(f"Factors: {len(fg.factors)}")
 
-fg.gbp_solve(n_iters=200)
+fg.gbp_solve(n_iters=21)
 # for i in range(100):
 #     fg.gradient_descent_step(lr=0.0001)
 # print(f"Energy: {fg.energy()}")

@@ -20,6 +20,15 @@ import time
 from urllib.parse import urlparse, parse_qs
 
 PORT = 5000
+DATA_FILE = "pose_data.json"
+
+# Global list to store poses
+pose_history = []
+
+def save_pose_to_file():
+    """Save pose history to JSON file."""
+    with open(DATA_FILE, 'w') as f:
+        json.dump(pose_history, f, indent=2)
 
 class RobotHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
@@ -49,7 +58,9 @@ class RobotHandler(http.server.SimpleHTTPRequestHandler):
             
             try:
                 data = json.loads(body)
-                print(data)
+                pose_history.append(data)
+                save_pose_to_file()
+                print(f"Stored pose {len(pose_history)}")
                 
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
