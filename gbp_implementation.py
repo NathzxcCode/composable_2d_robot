@@ -98,7 +98,7 @@ gbp_settings = GBPSettings(
 kinematic_loss = HuberLoss(3, torch.tensor([0.1, 0.1, 1e-4]), 3.0)
 anchor_loss = SquaredLoss(3, torch.tensor([1e-4, 1e-4, 1e-6]))
 endpoint_loss = SquaredLoss(3, torch.tensor([1e-3, 1e-3, 1e-5]))
-distance_loss = TukeyLoss(1, torch.tensor([1.0]), 3.0)
+distance_loss = TukeyLoss(1, torch.tensor([0.1]), 3.0)
 # angle_loss = HuberLoss(1, torch.tensor([1e-4]), 3.0)
 
 # Instantiate the models
