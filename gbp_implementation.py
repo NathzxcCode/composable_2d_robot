@@ -222,17 +222,23 @@ data4 = {
 # update_factor_graph(data4, fg)
 
 N = 15
+count = 0
 with open("pose_data.json", "r") as f:
     poses = json.load(f)
 # Use first N poses
 for pose in poses[:N]:
     update_factor_graph(pose, fg)
+    if count < 5:
+        fg.gbp_solve(n_iters=10)
+    else:
+        fg.gbp_solve(n_iters=5)
+    count += 1
 
 print("Factor graph updated successfully!")
 print(f"Variables: {len(fg.var_nodes)}")
 print(f"Factors: {len(fg.factors)}")
 
-fg.gbp_solve(n_iters=21)
+# fg.gbp_solve(n_iters=21)
 # for i in range(100):
 #     fg.gradient_descent_step(lr=0.0001)
 # print(f"Energy: {fg.energy()}")
