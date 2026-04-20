@@ -25,12 +25,12 @@
         "local_angle": 0,
         "global_angle": 0,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": 279,
-          "y": 0
+          "x": 280,
+          "y": 5.684341886080802e-14
         },
         "sensor_offset": {
           "x": 120,
@@ -46,10 +46,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 139
+        "distance": 140
       }
     ]
   },
@@ -57,15 +57,15 @@
     "limbs": [
       {
         "id": 1,
-        "local_angle": 0,
-        "global_angle": 0,
+        "local_angle": 19,
+        "global_angle": 19,
         "position": {
           "x": 0,
           "y": 0
         },
         "endpoint": {
-          "x": 140,
-          "y": 0
+          "x": 132.3726005839044,
+          "y": 45.57954162400193
         },
         "sensor_offset": {
           "x": 120,
@@ -76,15 +76,15 @@
       },
       {
         "id": 2,
-        "local_angle": 39,
-        "global_angle": 39,
+        "local_angle": 0,
+        "global_angle": 19,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 132.3726005839044,
+          "y": 45.57954162400199
         },
         "endpoint": {
-          "x": 247.80043460397587,
-          "y": 88.10485474697725
+          "x": 264.7452011678088,
+          "y": 91.15908324800392
         },
         "sensor_offset": {
           "x": 120,
@@ -100,10 +100,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 135.2951794567855
+        "distance": 140.00000000000006
       }
     ]
   },
@@ -111,15 +111,15 @@
     "limbs": [
       {
         "id": 1,
-        "local_angle": 0,
-        "global_angle": 0,
+        "local_angle": 121,
+        "global_angle": 121,
         "position": {
           "x": 0,
           "y": 0
         },
         "endpoint": {
-          "x": 140,
-          "y": 0
+          "x": -72.10533048740763,
+          "y": 120.00342209829574
         },
         "sensor_offset": {
           "x": 120,
@@ -130,15 +130,15 @@
       },
       {
         "id": 2,
-        "local_angle": 106,
-        "global_angle": 106,
+        "local_angle": 0,
+        "global_angle": 121,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": -72.10533048740768,
+          "y": 120.00342209829574
         },
         "endpoint": {
-          "x": 100.41077018562015,
-          "y": 134.5766374313646
+          "x": -144.21066097481528,
+          "y": 240.0068441965915
         },
         "sensor_offset": {
           "x": 120,
@@ -154,10 +154,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 116.20711534787569
+        "distance": 140.00000000000003
       }
     ]
   },
@@ -165,15 +165,15 @@
     "limbs": [
       {
         "id": 1,
-        "local_angle": 0,
-        "global_angle": 0,
+        "local_angle": 165,
+        "global_angle": 165,
         "position": {
           "x": 0,
           "y": 0
         },
         "endpoint": {
-          "x": 140,
-          "y": 0
+          "x": -135.22961568046958,
+          "y": 36.23466631435292
         },
         "sensor_offset": {
           "x": 120,
@@ -184,15 +184,15 @@
       },
       {
         "id": 2,
-        "local_angle": 145,
-        "global_angle": 145,
+        "local_angle": 0,
+        "global_angle": 165,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": -135.22961568046958,
+          "y": 36.234666314352864
         },
         "endpoint": {
-          "x": 24.31871379954117,
-          "y": 80.30070108914651
+          "x": -270.45923136093916,
+          "y": 72.46933262870579
         },
         "sensor_offset": {
           "x": 120,
@@ -208,10 +208,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 105.00317460935264
+        "distance": 140
       }
     ]
   },
@@ -219,15 +219,15 @@
     "limbs": [
       {
         "id": 1,
-        "local_angle": 0,
-        "global_angle": 0,
+        "local_angle": 224,
+        "global_angle": 224,
         "position": {
           "x": 0,
           "y": 0
         },
         "endpoint": {
-          "x": 140,
-          "y": 0
+          "x": -100.70757204741113,
+          "y": -97.25217186425965
         },
         "sensor_offset": {
           "x": 120,
@@ -238,15 +238,15 @@
       },
       {
         "id": 2,
-        "local_angle": 185,
-        "global_angle": 185,
+        "local_angle": 0,
+        "global_angle": 224,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": -100.70757204741113,
+          "y": -97.25217186425965
         },
         "endpoint": {
-          "x": -0.46725773284435945,
-          "y": -12.201803984672097
+          "x": -201.41514409482227,
+          "y": -194.5043437285193
         },
         "sensor_offset": {
           "x": 120,
@@ -262,10 +262,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 101.08586536554772
+        "distance": 140
       }
     ]
   },
@@ -273,15 +273,15 @@
     "limbs": [
       {
         "id": 1,
-        "local_angle": 0,
-        "global_angle": 0,
+        "local_angle": 275,
+        "global_angle": 275,
         "position": {
           "x": 0,
           "y": 0
         },
         "endpoint": {
-          "x": 140,
-          "y": 0
+          "x": 12.201803984672097,
+          "y": -139.4672577328444
         },
         "sensor_offset": {
           "x": 120,
@@ -292,15 +292,15 @@
       },
       {
         "id": 2,
-        "local_angle": 212,
-        "global_angle": 212,
+        "local_angle": 0,
+        "global_angle": 275,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 12.201803984672154,
+          "y": -139.4672577328444
         },
         "endpoint": {
-          "x": 20.27326653810036,
-          "y": -74.18869699264866
+          "x": 24.40360796934425,
+          "y": -278.9345154656888
         },
         "sensor_offset": {
           "x": 120,
@@ -316,10 +316,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 104.37385056385864
+        "distance": 140
       }
     ]
   },
@@ -327,15 +327,15 @@
     "limbs": [
       {
         "id": 1,
-        "local_angle": 0,
-        "global_angle": 0,
+        "local_angle": 325,
+        "global_angle": 325,
         "position": {
           "x": 0,
           "y": 0
         },
         "endpoint": {
-          "x": 140,
-          "y": 0
+          "x": 114.68128620045883,
+          "y": -80.30070108914651
         },
         "sensor_offset": {
           "x": 120,
@@ -346,15 +346,15 @@
       },
       {
         "id": 2,
-        "local_angle": 244,
-        "global_angle": 244,
+        "local_angle": 0,
+        "global_angle": 325,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 114.68128620045883,
+          "y": -80.30070108914651
         },
         "endpoint": {
-          "x": 77.62803944952913,
-          "y": -125.83116648188337
+          "x": 229.36257240091766,
+          "y": -160.60140217829303
         },
         "sensor_offset": {
           "x": 120,
@@ -370,10 +370,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 112.96914432995324
+        "distance": 140.00000000000006
       }
     ]
   },
@@ -381,141 +381,33 @@
     "limbs": [
       {
         "id": 1,
-        "local_angle": 0,
-        "global_angle": 0,
-        "position": {
-          "x": 0,
-          "y": 0
-        },
-        "endpoint": {
-          "x": 140,
-          "y": 0
-        },
-        "sensor_offset": {
-          "x": 120,
-          "y": 0
-        },
-        "limb_length": 140,
-        "depth": 0
-      },
-      {
-        "id": 2,
-        "local_angle": 278,
-        "global_angle": 278,
-        "position": {
-          "x": 139,
-          "y": 0
-        },
-        "endpoint": {
-          "x": 158.48423413440912,
-          "y": -138.63752962381986
-        },
-        "sensor_offset": {
-          "x": 120,
-          "y": 0
-        },
-        "limb_length": 140,
-        "depth": 1
-      }
-    ],
-    "connections": [
-      {
-        "child_id": 2,
-        "parent_id": 1,
-        "depth": 1,
-        "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
-        },
-        "distance": 124.07912532081251
-      }
-    ]
-  },
-  {
-    "limbs": [
-      {
-        "id": 1,
-        "local_angle": 0,
-        "global_angle": 0,
-        "position": {
-          "x": 0,
-          "y": 0
-        },
-        "endpoint": {
-          "x": 140,
-          "y": 0
-        },
-        "sensor_offset": {
-          "x": 120,
-          "y": 0
-        },
-        "limb_length": 140,
-        "depth": 0
-      },
-      {
-        "id": 2,
-        "local_angle": 335,
-        "global_angle": 335,
-        "position": {
-          "x": 139,
-          "y": 0
-        },
-        "endpoint": {
-          "x": 265.883090185131,
-          "y": -59.166556643698016
-        },
-        "sensor_offset": {
-          "x": 120,
-          "y": 0
-        },
-        "limb_length": 140,
-        "depth": 1
-      }
-    ],
-    "connections": [
-      {
-        "child_id": 2,
-        "parent_id": 1,
-        "depth": 1,
-        "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
-        },
-        "distance": 137.45458707837702
-      }
-    ]
-  },
-  {
-    "limbs": [
-      {
-        "id": 1,
-        "local_angle": 0,
-        "global_angle": 0,
-        "position": {
-          "x": 0,
-          "y": 0
-        },
-        "endpoint": {
-          "x": 140,
-          "y": 0
-        },
-        "sensor_offset": {
-          "x": 120,
-          "y": 0
-        },
-        "limb_length": 140,
-        "depth": 0
-      },
-      {
-        "id": 2,
         "local_angle": 360,
         "global_angle": 360,
         "position": {
-          "x": 139,
+          "x": 0,
           "y": 0
         },
         "endpoint": {
-          "x": 279,
+          "x": 140,
+          "y": -5.684341886080802e-14
+        },
+        "sensor_offset": {
+          "x": 120,
+          "y": 0
+        },
+        "limb_length": 140,
+        "depth": 0
+      },
+      {
+        "id": 2,
+        "local_angle": 0,
+        "global_angle": 360,
+        "position": {
+          "x": 140,
+          "y": 0
+        },
+        "endpoint": {
+          "x": 280,
           "y": -5.684341886080802e-14
         },
         "sensor_offset": {
@@ -532,10 +424,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 139
+        "distance": 140
       }
     ]
   }

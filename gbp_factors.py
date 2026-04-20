@@ -92,7 +92,7 @@ def kin_calib_meas_fn(x: torch.Tensor, L: float, theta_joint: float): #
     # 5. Residual is the Log map (tangent space vector)
     return SE2_log_map(delta_T)
 
-def kin_calib_jac_fn(x: torch.Tensor, L: float, theta_joint: float): #  
+def kin_calib_jac_fn_old(x: torch.Tensor, L: float, theta_joint: float): #  
     """
     Analytic Jacobian based on Lie Group Adjoints.
     The Jacobian is 3x9 (3-DOF residual, 9-DOF state).
@@ -121,6 +121,74 @@ def kin_calib_jac_fn(x: torch.Tensor, L: float, theta_joint: float): #
     J_c2 = SE2_adjoint(T_chain)
     
     # Concatenate into a 3x9 matrix
+    return torch.cat([J_n1, J_c2, J_n2], dim=1)
+
+def kin_calib_jac_fn(x: torch.Tensor, L: float, theta_joint: float):
+    """
+    Correct analytic Jacobian for additive coordinate perturbations.
+    3x9 matrix: 3-DOF residual w.r.t. 9-DOF state [x1,y1,θ1, Cx,Cy,Cθ, x2,y2,θ2]
+    """
+    # Extract current linearization-point values
+    theta1 = x[2]           # parent orientation
+    Cx, Cy = x[3], x[4]    # calibration translation
+    theta2 = x[8]           # child orientation
+    c1, s1 = torch.cos(theta1), torch.sin(theta1)
+    c2, s2 = torch.cos(theta2), torch.sin(theta2)
+    # ----------------------------------------------------------
+    # Step 1: The "frame rotation" matrix R2 = R(-θ2)
+    # ----------------------------------------------------------
+    # The residual lives in N2's local frame. Any world-frame
+    # position difference (Δx, Δy) must be rotated by -θ2 to
+    # express it in that frame.
+    R2 = torch.tensor([
+        [ c2, s2, 0.],
+        [-s2, c2, 0.],
+        [ 0., 0., 1.]
+    ])
+    # ----------------------------------------------------------
+    # Step 2: Jacobian w.r.t. Parent Node N1 [x1, y1, θ1]
+    # ----------------------------------------------------------
+    # The predicted child position is:
+    #   x_pred = x1 + (L + Cx)·cos(θ1) − Cy·sin(θ1)
+    #   y_pred = y1 + (L + Cx)·sin(θ1) + Cy·cos(θ1)
+    #   θ_pred = θ1 + Cθ + θ_joint
+    #
+    # Differentiating w.r.t. [x1, y1, θ1]:
+    #   ∂x_pred/∂x1 = 1,  ∂x_pred/∂y1 = 0,  ∂x_pred/∂θ1 = −(L+Cx)·sin(θ1) − Cy·cos(θ1)
+    #   ∂y_pred/∂x1 = 0,  ∂y_pred/∂y1 = 1,  ∂y_pred/∂θ1 =  (L+Cx)·cos(θ1) − Cy·sin(θ1)
+    #   ∂θ_pred/∂x1 = 0,  ∂θ_pred/∂y1 = 0,  ∂θ_pred/∂θ1 = 1
+    dx_dth1 = -(L + Cx) * s1 - Cy * c1
+    dy_dth1 =  (L + Cx) * c1 - Cy * s1
+    J_delta_n1 = torch.tensor([
+        [1., 0., dx_dth1],
+        [0., 1., dy_dth1],
+        [0., 0., 1.]
+    ])
+    J_n1 = R2 @ J_delta_n1
+    # ----------------------------------------------------------
+    # Step 3: Jacobian w.r.t. Calibration C [Cx, Cy, Cθ]
+    # ----------------------------------------------------------
+    # The calibration offset [Cx, Cy] gets rotated by R(θ1)
+    # (the parent's orientation) before being added to the
+    # predicted position:
+    #   ∂x_pred/∂Cx =  cos(θ1),   ∂x_pred/∂Cy = −sin(θ1),  ∂x_pred/∂Cθ = 0
+    #   ∂y_pred/∂Cx =  sin(θ1),   ∂y_pred/∂Cy =  cos(θ1),  ∂y_pred/∂Cθ = 0
+    #   ∂θ_pred/∂Cx =  0,         ∂θ_pred/∂Cy =  0,         ∂θ_pred/∂Cθ = 1
+    J_delta_c = torch.tensor([
+        [ c1, -s1, 0.],
+        [ s1,  c1, 0.],
+        [ 0.,  0., 1.]
+    ])
+    J_c2 = R2 @ J_delta_c
+    # ----------------------------------------------------------
+    # Step 4: Jacobian w.r.t. Child Node N2 [x2, y2, θ2]
+    # ----------------------------------------------------------
+    # The differences are:
+    #   Δx = x_pred − x2  →  ∂Δx/∂x2 = −1
+    #   Δy = y_pred − y2  →  ∂Δy/∂y2 = −1
+    #   Δθ = θ_pred − θ2  →  ∂Δθ/∂θ2 = −1
+    # After rotating into N2's frame: J_n2 = R2 @ (−I) = −R2
+    J_n2 = -R2
     return torch.cat([J_n1, J_c2, J_n2], dim=1)
 
 class KinematicCalibModel(MeasModel):
@@ -213,7 +281,6 @@ class EndpointModel(MeasModel):
 
 
 ## distance measurement factor endpoint-endpoint ##
-## TO:DO figure out how the measurement it inserted into this function whether though class or other
 def distance_meas_fn(x: torch.Tensor, s1_local: torch.Tensor, s2_local: torch.Tensor):
     """
     Distance Residual: r = ||P2 - P1|| - d_measured

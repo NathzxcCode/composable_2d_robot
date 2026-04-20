@@ -221,18 +221,22 @@ data4 = {
 # update_factor_graph(data3, fg)
 # update_factor_graph(data4, fg)
 
-N = 15
 count = 0
-with open("pose_data.json", "r") as f:
+with open("pose_data_x0_y1_joint2_rotate.json", "r") as f:
     poses = json.load(f)
+
 # Use first N poses
+N = len(poses)
 for pose in poses[:N]:
+    # if count in [5,6,7,8,9,10]:
     update_factor_graph(pose, fg)
-    if count < 5:
-        fg.gbp_solve(n_iters=10)
-    else:
-        fg.gbp_solve(n_iters=5)
+    # if count == 3:
+    #     fg.gbp_solve(n_iters=20)
+    # else:
+    #     fg.gbp_solve(n_iters=5)
     count += 1
+
+fg.gbp_solve(n_iters=50)
 
 print("Factor graph updated successfully!")
 print(f"Variables: {len(fg.var_nodes)}")

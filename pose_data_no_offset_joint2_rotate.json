@@ -25,12 +25,12 @@
         "local_angle": 0,
         "global_angle": 0,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": 279,
-          "y": 0
+          "x": 280,
+          "y": 5.684341886080802e-14
         },
         "sensor_offset": {
           "x": 120,
@@ -46,10 +46,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 139
+        "distance": 140
       }
     ]
   },
@@ -76,15 +76,15 @@
       },
       {
         "id": 2,
-        "local_angle": 39,
-        "global_angle": 39,
+        "local_angle": 5,
+        "global_angle": 5,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": 247.80043460397587,
-          "y": 88.10485474697725
+          "x": 279.46725773284436,
+          "y": 12.20180398467221
         },
         "sensor_offset": {
           "x": 120,
@@ -100,10 +100,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 135.2951794567855
+        "distance": 139.9347510479094
       }
     ]
   },
@@ -130,15 +130,15 @@
       },
       {
         "id": 2,
-        "local_angle": 106,
-        "global_angle": 106,
+        "local_angle": 76,
+        "global_angle": 76,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": 100.41077018562015,
-          "y": 134.5766374313646
+          "x": 173.8690653839535,
+          "y": 135.8414016786396
         },
         "sensor_offset": {
           "x": 120,
@@ -154,10 +154,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 116.20711534787569
+        "distance": 126.3377421789642
       }
     ]
   },
@@ -184,15 +184,15 @@
       },
       {
         "id": 2,
-        "local_angle": 145,
-        "global_angle": 145,
+        "local_angle": 119,
+        "global_angle": 119,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": 24.31871379954117,
-          "y": 80.30070108914651
+          "x": 72.12665316551283,
+          "y": 122.44675899951551
         },
         "sensor_offset": {
           "x": 120,
@@ -208,10 +208,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 105.00317460935264
+        "distance": 111.68220011630144
       }
     ]
   },
@@ -238,15 +238,15 @@
       },
       {
         "id": 2,
-        "local_angle": 185,
-        "global_angle": 185,
+        "local_angle": 135,
+        "global_angle": 135,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": -0.46725773284435945,
-          "y": -12.201803984672097
+          "x": 41.00505063388334,
+          "y": 98.99494936611671
         },
         "sensor_offset": {
           "x": 120,
@@ -262,10 +262,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 101.08586536554772
+        "distance": 106.79834947369076
       }
     ]
   },
@@ -292,15 +292,15 @@
       },
       {
         "id": 2,
-        "local_angle": 212,
-        "global_angle": 212,
+        "local_angle": 192,
+        "global_angle": 192,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": 20.27326653810036,
-          "y": -74.18869699264866
+          "x": 3.0593358972672036,
+          "y": -29.107636714486205
         },
         "sensor_offset": {
           "x": 120,
@@ -316,10 +316,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 104.37385056385864
+        "distance": 100.52308946942354
       }
     ]
   },
@@ -346,15 +346,15 @@
       },
       {
         "id": 2,
-        "local_angle": 244,
-        "global_angle": 244,
+        "local_angle": 218,
+        "global_angle": 218,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": 77.62803944952913,
-          "y": -125.83116648188337
+          "x": 29.678494495058885,
+          "y": -86.19260654559207
         },
         "sensor_offset": {
           "x": 120,
@@ -370,10 +370,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 112.96914432995324
+        "distance": 104.96451011026409
       }
     ]
   },
@@ -400,15 +400,15 @@
       },
       {
         "id": 2,
-        "local_angle": 278,
-        "global_angle": 278,
+        "local_angle": 265,
+        "global_angle": 265,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": 158.48423413440912,
-          "y": -138.63752962381986
+          "x": 127.79819601532779,
+          "y": -139.46725773284433
         },
         "sensor_offset": {
           "x": 120,
@@ -424,10 +424,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 124.07912532081251
+        "distance": 119.9235274448314
       }
     ]
   },
@@ -454,15 +454,15 @@
       },
       {
         "id": 2,
-        "local_angle": 335,
-        "global_angle": 335,
+        "local_angle": 312,
+        "global_angle": 312,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": 265.883090185131,
-          "y": -59.166556643698016
+          "x": 233.6782848902401,
+          "y": -104.04027556683519
         },
         "sensor_offset": {
           "x": 120,
@@ -478,10 +478,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 137.45458707837702
+        "distance": 134.20814770542998
       }
     ]
   },
@@ -511,12 +511,12 @@
         "local_angle": 360,
         "global_angle": 360,
         "position": {
-          "x": 139,
-          "y": 0
+          "x": 140,
+          "y": 5.684341886080802e-14
         },
         "endpoint": {
-          "x": 279,
-          "y": -5.684341886080802e-14
+          "x": 280,
+          "y": 0
         },
         "sensor_offset": {
           "x": 120,
@@ -532,10 +532,10 @@
         "parent_id": 1,
         "depth": 1,
         "calibration": {
-          "offset_x": 139,
-          "offset_y": 0
+          "offset_x": 140,
+          "offset_y": 3.429011037612589e-14
         },
-        "distance": 139
+        "distance": 140
       }
     ]
   }
