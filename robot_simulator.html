@@ -197,6 +197,19 @@
         .empty-state { text-align: center; padding: 40px 20px; color: #666; }
         .empty-state p { margin-bottom: 12px; }
 
+        /* Server status badge */
+        #server-status {
+            font-size: 0.7rem;
+            padding: 3px 8px;
+            border-radius: 10px;
+            background: #2a2a4a;
+            color: #888;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        #server-status.connected { background: #1a3a2a; color: #6aba8a; }
+        #server-status.error     { background: #3a1a1a; color: #d96a6a; }
+
         .factor-graph-panel {
             width: 300px;
             background: #0f0f23;
@@ -249,7 +262,7 @@
     <div class="container">
         <div class="canvas-container">
             <header>
-                <h1>Robot Simulator</h1>
+                <h1>Robot Simulator <span id="server-status">offline</span></h1>
             </header>
             <canvas id="simulation-canvas"></canvas>
         </div>
@@ -291,6 +304,9 @@
     </div>
 
     <script>
+        // =====================================================================
+        // Robot domain model
+        // =====================================================================
         class Robot {
             constructor(id, x, y) {
                 this.id = id;
@@ -440,7 +456,7 @@
                 ctx.lineWidth = 2;
                 ctx.stroke();
 
-                // Draw sensor position (smaller circle near the tip)
+                // Sensor position dot
                 const sensorPos = this.getSensorPosition();
                 ctx.beginPath();
                 ctx.arc(sensorPos.x, sensorPos.y, 8, 0, Math.PI * 2);
@@ -450,7 +466,7 @@
                 ctx.lineWidth = 2;
                 ctx.stroke();
 
-                // Draw dashed line from joint to sensor
+                // Dashed line from joint to sensor
                 ctx.beginPath();
                 ctx.setLineDash([4, 4]);
                 ctx.moveTo(motorPos.x, motorPos.y);
@@ -485,7 +501,7 @@
                 const rotatedDy = dx * Math.sin(-angleRad) + dy * Math.cos(-angleRad);
 
                 let localX, localY;
-                
+
                 if (Math.abs(rotatedDy) <= halfWidth && Math.abs(rotatedDx) <= halfLength + halfWidth) {
                     if (rotatedDx < 0 && Math.abs(rotatedDy) < halfWidth) {
                         localX = rotatedDx;
@@ -496,9 +512,9 @@
                     } else if (rotatedDx > halfLength) {
                         const cornerDist = Math.sqrt((rotatedDx - halfLength) ** 2 + rotatedDy ** 2);
                         if (cornerDist > halfWidth) {
-                            const angle = Math.atan2(rotatedDy, rotatedDx - halfLength);
-                            localX = halfLength + Math.cos(angle) * halfWidth;
-                            localY = Math.sin(angle) * halfWidth;
+                            const ang = Math.atan2(rotatedDy, rotatedDx - halfLength);
+                            localX = halfLength + Math.cos(ang) * halfWidth;
+                            localY = Math.sin(ang) * halfWidth;
                         } else {
                             localX = halfLength;
                             localY = rotatedDy;
@@ -524,6 +540,9 @@
             }
         }
 
+        // =====================================================================
+        // Force-directed factor graph visualisation
+        // =====================================================================
         class GraphNode {
             constructor(robot) {
                 this.id = robot.id;
@@ -565,6 +584,10 @@
                 this.repulsionStrength = 5000;
                 this.centerStrength = 0.02;
 
+                // Calibration panel data – set externally before each render()
+                this.calibPanelRobots        = [];
+                this.calibPanelCalibrations  = null;
+
                 this.setupInteraction();
             }
 
@@ -578,10 +601,7 @@
 
             getMousePos(e) {
                 const rect = this.canvas.getBoundingClientRect();
-                return {
-                    x: e.clientX - rect.left,
-                    y: e.clientY - rect.top
-                };
+                return { x: e.clientX - rect.left, y: e.clientY - rect.top };
             }
 
             screenToWorld(sx, sy) {
@@ -627,10 +647,7 @@
                     const worldPos = this.screenToWorld(pos.x, pos.y);
                     for (const node of this.nodes) {
                         const dist = Math.sqrt((worldPos.x - node.x) ** 2 + (worldPos.y - node.y) ** 2);
-                        if (dist < 25) {
-                            hovering = true;
-                            break;
-                        }
+                        if (dist < 25) { hovering = true; break; }
                     }
                     this.canvas.style.cursor = hovering ? 'grab' : 'default';
                 }
@@ -647,13 +664,9 @@
                 const pos = this.getMousePos(e);
                 const worldBefore = this.screenToWorld(pos.x, pos.y);
 
-                if (e.deltaY < 0) {
-                    this.zoom *= 1.1;
-                } else {
-                    this.zoom /= 1.1;
-                }
-
-                this.zoom = Math.max(0.3, Math.min(3, this.zoom));
+                this.zoom = e.deltaY < 0
+                    ? Math.min(3, this.zoom * 1.1)
+                    : Math.max(0.3, this.zoom / 1.1);
 
                 const worldAfter = this.screenToWorld(pos.x, pos.y);
                 this.offsetX += (worldAfter.x - worldBefore.x) * this.zoom;
@@ -682,7 +695,7 @@
                         const nodeA = nodeMap.get(robot.id);
                         const nodeB = nodeMap.get(robot.connectedTo.id);
                         if (nodeA && nodeB) {
-                            const existing = this.factors.find(f => 
+                            const existing = this.factors.find(f =>
                                 (f.nodeA === nodeA && f.nodeB === nodeB) ||
                                 (f.nodeA === nodeB && f.nodeB === nodeA)
                             );
@@ -702,9 +715,7 @@
                 let hasMotion = false;
 
                 for (const node of this.nodes) {
-                    if (Math.abs(node.vx) > 0.1 || Math.abs(node.vy) > 0.1) {
-                        hasMotion = true;
-                    }
+                    if (Math.abs(node.vx) > 0.1 || Math.abs(node.vy) > 0.1) hasMotion = true;
 
                     let fx = 0, fy = 0;
 
@@ -752,7 +763,7 @@
                     }
                 }
 
-                if (!hasMotion && this.nodes.length > 0) {
+                if (!hasMotion) {
                     for (const node of this.nodes) {
                         if (Math.abs(node.vx) > 0.01 || Math.abs(node.vy) > 0.01) {
                             hasMotion = true;
@@ -829,6 +840,99 @@
                 }
 
                 ctx.restore();
+
+                // Draw calibration info panel in canvas-space (unaffected by zoom/pan)
+                this.drawCalibrationPanel();
+            }
+
+            /**
+             * Draw a fixed calibration info panel at the bottom of the factor-graph canvas.
+             * Always shows the true offset for every connection. Shows the GBP
+             * estimated offset alongside once calibration data is available.
+             * Drawn in raw canvas-space (not affected by zoom/pan).
+             */
+            drawCalibrationPanel() {
+                const robots       = this.calibPanelRobots;
+                const calibrations = this.calibPanelCalibrations;
+
+                // Collect one entry per child robot that has a parent
+                const connections = robots.filter(r => r.connectedTo);
+                if (connections.length === 0) return;
+
+                const ctx        = this.ctx;
+                const lineHeight = 17;
+                const padX       = 10;
+                const panelRows  = connections.length * 3 + 1; // header + 3 rows per connection
+                const panelH     = panelRows * lineHeight + 14;
+                const panelY     = this.canvas.height - panelH - 6;
+                const panelW     = this.canvas.width - padX * 2;
+
+                // Panel background
+                ctx.fillStyle = 'rgba(10, 10, 25, 0.82)';
+                ctx.strokeStyle = '#2a2a4a';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.roundRect(padX, panelY, panelW, panelH, 5);
+                ctx.fill();
+                ctx.stroke();
+
+                let y = panelY + lineHeight;
+
+                // Section header
+                ctx.fillStyle = '#555577';
+                ctx.font = 'bold 10px monospace';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('CALIBRATION', padX + 6, y);
+                y += lineHeight;
+
+                for (const child of connections) {
+                    const parent    = child.connectedTo;
+                    const calibId   = 'calib' + child.id;
+                    const calibData = calibrations
+                        ? calibrations.find(c => c.id === calibId)
+                        : null;
+
+                    // True offset: connectionOffset is motor-relative;
+                    // subtract limbLength to get endpoint-relative (solver convention)
+                    const trueX = child.connectionOffset.x - parent.limbLength;
+                    const trueY = child.connectionOffset.y;
+
+                    // Row label: "limb N→M"
+                    ctx.fillStyle = '#6688aa';
+                    ctx.font = 'bold 10px monospace';
+                    ctx.fillText(`limb ${parent.id} \u2192 ${child.id}`, padX + 6, y);
+                    y += lineHeight;
+
+                    // True row
+                    ctx.fillStyle = '#00ff88';
+                    ctx.font = '10px monospace';
+                    ctx.fillText('TRUE', padX + 6, y);
+                    ctx.fillStyle = '#ccddcc';
+                    ctx.fillText(
+                        `x: ${trueX >= 0 ? '+' : ''}${trueX.toFixed(1).padStart(6)}   y: ${trueY >= 0 ? '+' : ''}${trueY.toFixed(1).padStart(6)}`,
+                        padX + 44, y
+                    );
+                    y += lineHeight;
+
+                    // Estimated row
+                    if (calibData) {
+                        const [ex, ey] = calibData.mean;
+                        ctx.fillStyle = '#00eeff';
+                        ctx.font = '10px monospace';
+                        ctx.fillText('EST ', padX + 6, y);
+                        ctx.fillStyle = '#cceeff';
+                        ctx.fillText(
+                            `x: ${ex >= 0 ? '+' : ''}${ex.toFixed(1).padStart(6)}   y: ${ey >= 0 ? '+' : ''}${ey.toFixed(1).padStart(6)}`,
+                            padX + 44, y
+                        );
+                    } else {
+                        ctx.fillStyle = '#444466';
+                        ctx.font = '10px monospace';
+                        ctx.fillText('EST   x:      \u2014       y:      \u2014', padX + 6, y);
+                    }
+                    y += lineHeight + 2; // small gap between connections
+                }
             }
 
             resetView() {
@@ -838,6 +942,143 @@
             }
         }
 
+        // =====================================================================
+        // WebSocket client wrapper
+        // =====================================================================
+        class SolverWebSocket {
+            constructor(url, onCalibration, onStatusChange) {
+                this.url = url;
+                this.onCalibration = onCalibration;   // callback(calibrationMsg)
+                this.onStatusChange = onStatusChange; // callback('connected'|'disconnected'|'error')
+                this.ws = null;
+            }
+
+            connect() {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+
+                this.ws = new WebSocket(this.url);
+
+                this.ws.onopen = () => {
+                    console.log('[WS] Connected to live GBP server');
+                    this.onStatusChange('connected');
+                };
+
+                this.ws.onmessage = (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'calibration') {
+                            this.onCalibration(msg);
+                        } else if (msg.type === 'error') {
+                            console.warn('[WS] Server error:', msg.message);
+                        }
+                    } catch (e) {
+                        console.warn('[WS] Failed to parse message:', e);
+                    }
+                };
+
+                this.ws.onerror = () => {
+                    console.warn('[WS] WebSocket error');
+                    this.onStatusChange('error');
+                };
+
+                this.ws.onclose = () => {
+                    console.log('[WS] Disconnected');
+                    this.onStatusChange('disconnected');
+                    this.ws = null;
+                };
+            }
+
+            send(msg) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify(msg));
+                    return true;
+                }
+                return false;
+            }
+
+            reset() {
+                this.send({ type: 'reset' });
+            }
+
+            disconnect() {
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+            }
+
+            get isConnected() {
+                return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+            }
+        }
+
+        // =====================================================================
+        // Calibration visualisation helpers
+        // =====================================================================
+
+        /**
+         * Compute the 2D eigendecomposition of a symmetric 2x2 matrix.
+         * Returns { angle, rx, ry } where:
+         *   angle  – rotation of the major axis (radians)
+         *   rx, ry – half-axes = sqrt(eigenvalue) * SCALE_FACTOR
+         */
+        const ELLIPSE_SCALE = 12;
+
+        function eigenDecompose2x2(cov) {
+            const a = cov[0][0], b = cov[0][1], d = cov[1][1];
+            const trace  = a + d;
+            const det    = a * d - b * b;
+            const disc   = Math.sqrt(Math.max(0, (trace / 2) ** 2 - det));
+            const lam1   = trace / 2 + disc;
+            const lam2   = trace / 2 - disc;
+
+            // Eigenvector for lam1
+            let angle = 0;
+            if (Math.abs(b) > 1e-10) {
+                angle = Math.atan2(lam1 - a, b);
+            } else {
+                angle = a >= d ? 0 : Math.PI / 2;
+            }
+
+            return {
+                angle,
+                rx: Math.sqrt(Math.max(0, lam1)) * ELLIPSE_SCALE,
+                ry: Math.sqrt(Math.max(0, lam2)) * ELLIPSE_SCALE
+            };
+        }
+
+        /**
+         * Rotate a local 2D offset [lx, ly] by worldAngle (radians) and add
+         * to worldOrigin. Used to transform calibration/connection offsets from
+         * the parent's local frame into world (canvas) coordinates.
+         */
+        function localToWorld(worldOrigin, worldAngleRad, lx, ly) {
+            return {
+                x: worldOrigin.x + lx * Math.cos(worldAngleRad) - ly * Math.sin(worldAngleRad),
+                y: worldOrigin.y + lx * Math.sin(worldAngleRad) + ly * Math.cos(worldAngleRad)
+            };
+        }
+
+        /**
+         * Given a parent robot, compute the world-space position of a
+         * calibration offset [cx, cy] (in the parent's local frame, relative
+         * to the parent's endpoint / limb end).
+         *
+         * Convention matches KinematicCalibModel:
+         *   T_pred = N_parent @ L_link @ C @ J
+         * So the offset is applied AFTER walking the full limb length L along
+         * the parent. In world space:
+         *   connectionWorld = parentEndpoint + R(parentWorldAngle) * [cx, cy]
+         */
+        function calibOffsetToWorld(parentRobot, cx, cy) {
+            const endpoint   = parentRobot.getLimbEnd();          // parent's limb endpoint in world
+            const angleRad   = parentRobot.getWorldAngle() * Math.PI / 180;
+            return localToWorld(endpoint, angleRad, cx, cy);
+        }
+
+        // =====================================================================
+        // Main simulator
+        // =====================================================================
         class RobotSimulator {
             constructor() {
                 this.robots = [];
@@ -846,19 +1087,20 @@
                 this.dragging = false;
                 this.dragTarget = null;
                 this.nextId = 1;
-                
-                // Server update frequency in milliseconds
-                this.serverUpdateFrequencyMs = 1000;
-                
-                this.socket = null;
-                this.connected = false;
-                this.updateInterval = this.serverUpdateFrequencyMs;
-                this.lastGraphUpdate = 0;
-                
+
                 this.isPlaying = false;
                 this.playSpeed = 5;
                 this.targetAngles = {};
-                
+
+                // Step-lock state machine
+                // States: IDLE | MOVING | WAITING_FOR_SOLVER | POST_STEP_PAUSE
+                this.stepState = 'IDLE';
+                this.postStepPauseMs = 500;
+                this.postStepTimer = null;
+
+                // Calibration data received from the solver
+                this.calibrationData = null;   // last msg.calibrations array
+
                 this.canvas = document.getElementById('simulation-canvas');
                 this.ctx = this.canvas.getContext('2d');
                 this.robotListEl = document.getElementById('robot-list');
@@ -866,6 +1108,13 @@
 
                 this.factorGraphCanvas = document.getElementById('factor-graph-canvas');
                 this.factorGraph = new ForceDirectedGraph(this.factorGraphCanvas);
+
+                // WebSocket solver connection
+                this.solver = new SolverWebSocket(
+                    'ws://localhost:8000/ws',
+                    (msg) => this.onCalibrationReceived(msg),
+                    (status) => this.onServerStatus(status)
+                );
 
                 this.init();
             }
@@ -898,108 +1147,397 @@
                     document.getElementById('speed-value').textContent = this.playSpeed;
                 });
 
-                this.connectToServer();
+                // Try to connect to the live server (non-blocking)
+                this.solver.connect();
+
                 this.render();
                 this.animate();
             }
 
-            connectToServer() {
-                fetch('http://localhost:5000/api/simulation_state')
-                    .then(response => {
-                        if (response.ok) {
-                            console.log('Connected to GBP server');
-                            this.connected = true;
-                        } else {
-                            console.log('Could not connect to server, running in offline mode');
-                            this.connected = false;
-                        }
-                    })
-                    .catch(() => {
-                        console.log('Could not connect to server, running in offline mode');
-                        this.connected = false;
-                    });
+            // ------------------------------------------------------------------
+            // Server callbacks
+            // ------------------------------------------------------------------
+
+            onServerStatus(status) {
+                const badge = document.getElementById('server-status');
+                badge.className = status;
+                badge.textContent = status === 'connected' ? 'live GBP'
+                                  : status === 'error'     ? 'error'
+                                  : 'offline';
             }
 
-            sendFactorGraph() {
-                if (!this.connected) return;
-                
-                // Find the base limb (depth 0 - has no parent)
+            onCalibrationReceived(msg) {
+                // msg = { type:"calibration", calibrations:[...], step:N, energy:E }
+                this.calibrationData = msg.calibrations;
+                console.log(`[GBP] step=${msg.step}, energy=${msg.energy?.toFixed(4)}`);
+
+                // Advance the state machine: solver has responded
+                if (this.stepState === 'WAITING_FOR_SOLVER') {
+                    this.stepState = 'POST_STEP_PAUSE';
+                    this.render();   // redraw with new calibration overlay
+
+                    this.postStepTimer = setTimeout(() => {
+                        if (this.isPlaying) {
+                            this.pickNewTargets();
+                            this.stepState = 'MOVING';
+                        } else {
+                            this.stepState = 'IDLE';
+                        }
+                    }, this.postStepPauseMs);
+                }
+            }
+
+            // ------------------------------------------------------------------
+            // Playback control
+            // ------------------------------------------------------------------
+
+            startPlayback() {
+                if (this.robots.length === 0) return;
+
+                this.isPlaying = true;
+                document.getElementById('play-btn').disabled = true;
+                document.getElementById('pause-btn').disabled = false;
+
+                // Open / reset the solver session
+                if (!this.solver.isConnected) {
+                    this.solver.connect();
+                    // Give WS a moment to open before we start sending
+                    setTimeout(() => this._beginStep(), 300);
+                } else {
+                    this.solver.reset();          // fresh factor graph
+                    this.calibrationData = null;  // clear old overlay
+                    this._beginStep();
+                }
+            }
+
+            _beginStep() {
+                this.pickNewTargets();
+                this.stepState = 'MOVING';
+            }
+
+            stopPlayback() {
+                this.isPlaying = false;
+                this.stepState = 'IDLE';
+                if (this.postStepTimer) {
+                    clearTimeout(this.postStepTimer);
+                    this.postStepTimer = null;
+                }
+                document.getElementById('play-btn').disabled = false;
+                document.getElementById('pause-btn').disabled = true;
+            }
+
+            pickNewTargets() {
+                for (const robot of this.robots) {
+                    this.targetAngles[robot.id] = Math.random() * 360;
+                }
+            }
+
+            // ------------------------------------------------------------------
+            // Build and send pose payload
+            // ------------------------------------------------------------------
+
+            buildPosePayload() {
                 const baseLimb = this.robots.find(r => r.getDepth() === 0);
                 const baseOrigin = baseLimb ? baseLimb.getWorldPosition() : { x: 0, y: 0 };
-                
+
                 const limbs = this.robots.map(r => {
-                    const worldPos = r.getWorldPosition();
+                    const worldPos   = r.getWorldPosition();
                     const worldAngle = r.getWorldAngle();
-                    const limbEnd = r.getLimbEnd();
-                    
+                    const limbEnd    = r.getLimbEnd();
+
                     return {
                         id: r.id,
                         local_angle: r.angle,
                         global_angle: worldAngle,
-                        // Positions relative to base limb's motor position (origin at base link)
-                        position: { x: worldPos.x - baseOrigin.x, y: worldPos.y - baseOrigin.y },
-                        endpoint: { x: limbEnd.x - baseOrigin.x, y: limbEnd.y - baseOrigin.y },
+                        position: {
+                            x: worldPos.x - baseOrigin.x,
+                            y: worldPos.y - baseOrigin.y
+                        },
+                        endpoint: {
+                            x: limbEnd.x - baseOrigin.x,
+                            y: limbEnd.y - baseOrigin.y
+                        },
                         sensor_offset: { x: r.sensorOffset, y: 0 },
                         limb_length: r.limbLength,
                         depth: r.getDepth()
                     };
                 });
-                
+
                 const connections = [];
                 for (const robot of this.robots) {
                     if (robot.connectedTo) {
-                        // Calculate distance from this sensor to parent's sensor
-                        const sensorPos = robot.getSensorPosition();
+                        const sensorPos       = robot.getSensorPosition();
                         const parentSensorPos = robot.connectedTo.getSensorPosition();
                         const dx = parentSensorPos.x - sensorPos.x;
                         const dy = parentSensorPos.y - sensorPos.y;
                         const distance = Math.sqrt(dx * dx + dy * dy);
 
                         connections.push({
-                            child_id: robot.id,
+                            child_id:  robot.id,
                             parent_id: robot.connectedTo.id,
-                            depth: robot.getDepth(),
+                            depth:     robot.getDepth(),
                             calibration: {
                                 offset_x: robot.connectionOffset.x,
                                 offset_y: robot.connectionOffset.y
                             },
-                            distance: distance
+                            distance
                         });
                     }
                 }
-                
-                const simulationData = { limbs, connections };
-                
-                fetch('http://localhost:5000/api/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(simulationData)
-                }).catch(() => {});
+
+                return { type: 'pose', limbs, connections };
             }
 
-            calculateDistance(robotA, robotB) {
-                const posA = robotA.getWorldPosition();
-                const angleA = robotA.getWorldAngle();
-                const angleRad = (angleA * Math.PI) / 180;
-                
-                const limbEndX = posA.x + Math.cos(angleRad) * robotA.limbLength;
-                const limbEndY = posA.y + Math.sin(angleRad) * robotA.limbLength;
-                
-                const posB = robotB.getWorldPosition();
-                
-                const dx = limbEndX - posB.x;
-                const dy = limbEndY - posB.y;
-                
-                return Math.sqrt(dx * dx + dy * dy);
+            sendPose() {
+                const payload = this.buildPosePayload();
+                const sent = this.solver.send(payload);
+                if (!sent) {
+                    // Server not connected – skip waiting, just keep moving
+                    console.warn('[WS] Server not connected, skipping pose send');
+                    this.stepState = 'POST_STEP_PAUSE';
+                    this.postStepTimer = setTimeout(() => {
+                        if (this.isPlaying) {
+                            this.pickNewTargets();
+                            this.stepState = 'MOVING';
+                        } else {
+                            this.stepState = 'IDLE';
+                        }
+                    }, this.postStepPauseMs);
+                }
             }
+
+            // ------------------------------------------------------------------
+            // Animation loop
+            // ------------------------------------------------------------------
+
+            animate() {
+                if (this.isPlaying && this.stepState === 'MOVING' && this.robots.length > 0) {
+                    let allSettled = true;
+
+                    for (const robot of this.robots) {
+                        const targetAngle  = this.targetAngles[robot.id] ?? Math.random() * 360;
+                        this.targetAngles[robot.id] = targetAngle;
+
+                        let diff = targetAngle - robot.angle;
+                        if (diff > 180)  diff -= 360;
+                        if (diff < -180) diff += 360;
+
+                        const step = this.playSpeed;
+                        if (Math.abs(diff) > step) {
+                            allSettled = false;
+                            robot.angle += Math.sign(diff) * step;
+                        } else {
+                            robot.angle = targetAngle;
+                        }
+
+                        if (robot.angle < 0) robot.angle += 360;
+                        robot.angle = robot.angle % 360;
+
+                        const angleEl  = document.getElementById(`angle-${robot.id}`);
+                        const sliderEl = document.getElementById(`slider-${robot.id}`);
+                        if (angleEl)  angleEl.textContent  = `${Math.round(robot.angle)}deg`;
+                        if (sliderEl) sliderEl.value       = robot.angle;
+                    }
+
+                    if (allSettled) {
+                        // All joints at target – send pose to solver and wait
+                        this.stepState = 'WAITING_FOR_SOLVER';
+                        this.sendPose();
+                    }
+
+                    this.render();
+                }
+
+                // Update factor graph visualisation
+                this.factorGraph.updateFromRobots(this.robots);
+                // Pass current robots + calibration data so the panel can render
+                this.factorGraph.calibPanelRobots       = this.robots;
+                this.factorGraph.calibPanelCalibrations = this.calibrationData;
+                if (this.factorGraph.nodes.length > 0) {
+                    const hasMotion = this.factorGraph.step();
+                    this.factorGraph.render();
+                    if (hasMotion) {
+                        requestAnimationFrame(() => this.animate());
+                    } else {
+                        setTimeout(() => this.animate(), 50);
+                    }
+                } else {
+                    this.factorGraph.render();
+                    requestAnimationFrame(() => this.animate());
+                }
+            }
+
+            // ------------------------------------------------------------------
+            // Calibration overlay rendering
+            // ------------------------------------------------------------------
+
+            /**
+             * Draw the calibration estimates on the main canvas.
+             *
+             * For each calib node (e.g. "calib2"):
+             *   - Green cross  = ground-truth connection point (true connectionOffset
+             *                    from the parent's endpoint in world space)
+             *   - Cyan dot     = GBP mean estimate (same coordinate convention)
+             *   - Cyan ellipse = 2D positional uncertainty (eigendecomposed 2x2 cov)
+             *
+             * Coordinate convention for calib[x,y]:
+             *   The calibration offset is in the parent limb's LOCAL frame,
+             *   expressed relative to the parent's ENDPOINT (limb end).
+             *   To get world space: rotate [cx, cy] by the parent's world angle
+             *   and add the parent's endpoint world position.
+             */
+            drawCalibration(ctx) {
+                if (!this.calibrationData) return;
+
+                for (const calib of this.calibrationData) {
+                    // calib.id is e.g. "calib2"  →  child robot id is 2
+                    const childIdStr = calib.id.replace('calib', '');
+                    const childId    = parseInt(childIdStr);
+                    const childRobot = this.robots.find(r => r.id === childId);
+                    if (!childRobot || !childRobot.connectedTo) continue;
+
+                    const parentRobot = childRobot.connectedTo;
+
+                    // ── Ground truth ───────────────────────────────────────────
+                    // connectionOffset is in the parent's local frame but measured
+                    // from the parent's MOTOR position. The calibration convention
+                    // is from the parent's ENDPOINT, so we subtract the limb length
+                    // along the local x-axis to get the endpoint-relative offset.
+                    const trueOffsetFromEndpoint = {
+                        x: childRobot.connectionOffset.x - parentRobot.limbLength,
+                        y: childRobot.connectionOffset.y
+                    };
+                    const trueWorld = calibOffsetToWorld(
+                        parentRobot,
+                        trueOffsetFromEndpoint.x,
+                        trueOffsetFromEndpoint.y
+                    );
+
+                    // Green cross + label for ground truth
+                    const crossSize = 10;
+                    ctx.save();
+                    ctx.translate(trueWorld.x, trueWorld.y);
+                    ctx.strokeStyle = '#00ff88';
+                    ctx.lineWidth   = 2.5;
+                    ctx.beginPath();
+                    ctx.moveTo(-crossSize, 0); ctx.lineTo(crossSize, 0);
+                    ctx.moveTo(0, -crossSize); ctx.lineTo(0, crossSize);
+                    ctx.stroke();
+                    ctx.fillStyle = '#00ff88';
+                    ctx.font = 'bold 10px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText('TRUE', crossSize + 3, -2);
+                    ctx.restore();
+
+                    // ── Solver estimate ────────────────────────────────────────
+                    const [cx, cy] = calib.mean;
+                    const estWorld  = calibOffsetToWorld(parentRobot, cx, cy);
+
+                    // Cyan filled dot + label for mean estimate
+                    ctx.beginPath();
+                    ctx.arc(estWorld.x, estWorld.y, 5, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#00eeff';
+                    ctx.fill();
+                    ctx.fillStyle = '#00eeff';
+                    ctx.font = 'bold 10px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText('EST', estWorld.x + 8, estWorld.y + 2);
+
+                    // ── Uncertainty ellipse ────────────────────────────────────
+                    const { angle, rx, ry } = eigenDecompose2x2(calib.cov_xy);
+
+                    // The ellipse axes are in the parent's local frame
+                    // (same frame as the calibration mean). Rotate to world.
+                    const parentAngleRad = parentRobot.getWorldAngle() * Math.PI / 180;
+                    const totalAngle     = parentAngleRad + angle;
+
+                    ctx.save();
+                    ctx.translate(estWorld.x, estWorld.y);
+                    ctx.rotate(totalAngle);
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, Math.max(rx, 1), Math.max(ry, 1), 0, 0, 2 * Math.PI);
+                    ctx.strokeStyle = 'rgba(0, 238, 255, 0.7)';
+                    ctx.lineWidth   = 1.5;
+                    ctx.stroke();
+                    // Light fill so the ellipse is visible without obscuring the robot
+                    ctx.fillStyle = 'rgba(0, 238, 255, 0.08)';
+                    ctx.fill();
+                    ctx.restore();
+
+
+                }
+            }
+
+            // ------------------------------------------------------------------
+            // Render
+            // ------------------------------------------------------------------
+
+            render() {
+                this.ctx.fillStyle = '#16213e';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                const gridSize = 30;
+                this.ctx.strokeStyle = '#1e2a4a';
+                this.ctx.lineWidth = 1;
+
+                for (let x = 0; x < this.canvas.width; x += gridSize) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, 0);
+                    this.ctx.lineTo(x, this.canvas.height);
+                    this.ctx.stroke();
+                }
+
+                for (let y = 0; y < this.canvas.height; y += gridSize) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, y);
+                    this.ctx.lineTo(this.canvas.width, y);
+                    this.ctx.stroke();
+                }
+
+                const sortedByDepth = [...this.robots].sort((a, b) => a.getDepth() - b.getDepth());
+
+                sortedByDepth.forEach(robot => {
+                    robot.render(
+                        this.ctx,
+                        robot === this.selectedRobot,
+                        robot === this.hoveredRobot,
+                        robot.connectedTo !== null
+                    );
+                });
+
+                // Draw sensor-to-sensor distance lines
+                for (const robot of this.robots) {
+                    if (robot.connectedTo) {
+                        const sensorPos       = robot.getSensorPosition();
+                        const parentSensorPos = robot.connectedTo.getSensorPosition();
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(parentSensorPos.x, parentSensorPos.y);
+                        this.ctx.lineTo(sensorPos.x, sensorPos.y);
+                        this.ctx.strokeStyle = 'rgba(138, 74, 154, 0.5)';
+                        this.ctx.lineWidth   = 2;
+                        this.ctx.setLineDash([6, 4]);
+                        this.ctx.stroke();
+                        this.ctx.setLineDash([]);
+                    }
+                }
+
+                // Draw calibration overlay on top
+                this.drawCalibration(this.ctx);
+            }
+
+            // ------------------------------------------------------------------
+            // Mouse interaction
+            // ------------------------------------------------------------------
 
             resize() {
                 const container = this.canvas.parentElement;
-                this.canvas.width = container.clientWidth;
+                this.canvas.width  = container.clientWidth;
                 this.canvas.height = container.clientHeight - 56;
 
                 const graphContainer = this.factorGraphCanvas.parentElement;
-                this.factorGraphCanvas.width = graphContainer.clientWidth;
+                this.factorGraphCanvas.width  = graphContainer.clientWidth;
                 this.factorGraphCanvas.height = graphContainer.clientHeight - 45;
 
                 this.render();
@@ -1011,12 +1549,12 @@
             }
 
             onMouseDown(e) {
-                const pos = this.getMousePos(e);
+                const pos   = this.getMousePos(e);
                 const robot = this.findRobotAtPoint(pos.x, pos.y);
 
                 if (robot) {
                     this.selectRobot(robot);
-                    this.dragging = true;
+                    this.dragging   = true;
                     this.dragTarget = robot;
 
                     if (robot.connectedTo) {
@@ -1040,29 +1578,27 @@
                     this.dragTarget.y = pos.y;
                     this.render();
                 } else {
-                    this.hoveredRobot = this.findRobotAtPoint(pos.x, pos.y);
-                    this.canvas.style.cursor = this.hoveredRobot ? 'grab' : 'default';
+                    this.hoveredRobot          = this.findRobotAtPoint(pos.x, pos.y);
+                    this.canvas.style.cursor   = this.hoveredRobot ? 'grab' : 'default';
                 }
             }
 
             onMouseUp() {
                 if (this.dragging && this.dragTarget) {
                     const robot = this.dragTarget;
-                    const pos = { x: robot.x, y: robot.y };
+                    const pos   = { x: robot.x, y: robot.y };
                     this.tryConnectToNearbyRobot(robot, pos.x, pos.y);
                     this.updateRobotList();
                     this.render();
                 }
-                this.dragging = false;
+                this.dragging   = false;
                 this.dragTarget = null;
                 this.canvas.style.cursor = 'default';
             }
 
             findRobotAtPoint(px, py) {
                 for (const robot of this.robots) {
-                    if (robot.containsPoint(px, py)) {
-                        return robot;
-                    }
+                    if (robot.containsPoint(px, py)) return robot;
                 }
                 return null;
             }
@@ -1086,7 +1622,7 @@
                     if (other.connectedTo === robot) continue;
                     if (this.isDescendantOf(other, robot)) continue;
 
-                    const closest = other.findClosestPointOnBody(px, py);
+                    const closest  = other.findClosestPointOnBody(px, py);
                     const otherPos = other.getWorldPosition();
 
                     const worldClosestX = otherPos.x + closest.x;
@@ -1097,8 +1633,8 @@
                     if (dist < 50) {
                         candidates.push({
                             robot: other,
-                            dist: dist,
-                            closest: closest,
+                            dist,
+                            closest,
                             depth: other.getDepth()
                         });
                     }
@@ -1108,14 +1644,14 @@
 
                 candidates.sort((a, b) => b.depth - a.depth);
 
-                const best = candidates[0];
-                const parentAngle = best.robot.getWorldAngle();
-                const parentAngleRad = (parentAngle * Math.PI) / 180;
+                const best            = candidates[0];
+                const parentAngle     = best.robot.getWorldAngle();
+                const parentAngleRad  = (parentAngle * Math.PI) / 180;
 
                 const localX = best.closest.x * Math.cos(-parentAngleRad) - best.closest.y * Math.sin(-parentAngleRad);
                 const localY = best.closest.x * Math.sin(-parentAngleRad) + best.closest.y * Math.cos(-parentAngleRad);
 
-                robot.connectedTo = best.robot;
+                robot.connectedTo     = best.robot;
                 robot.connectionOffset = { x: localX, y: localY };
             }
 
@@ -1126,11 +1662,10 @@
             }
 
             addRobot() {
-                const x = this.canvas.width / 2 + (Math.random() - 0.5) * 150;
+                const x = this.canvas.width  / 2 + (Math.random() - 0.5) * 150;
                 const y = this.canvas.height / 2 + (Math.random() - 0.5) * 150;
 
                 const robot = new Robot(this.nextId++, x, y);
-
                 this.robots.push(robot);
                 this.selectRobot(robot);
                 this.updateRobotList();
@@ -1139,19 +1674,13 @@
 
             removeRobot(robot) {
                 const index = this.robots.indexOf(robot);
-                if (index > -1) {
-                    this.robots.splice(index, 1);
-                }
+                if (index > -1) this.robots.splice(index, 1);
 
                 this.robots.forEach(r => {
-                    if (r.connectedTo === robot) {
-                        r.connectedTo = null;
-                    }
+                    if (r.connectedTo === robot) r.connectedTo = null;
                 });
 
-                if (this.selectedRobot === robot) {
-                    this.selectedRobot = null;
-                }
+                if (this.selectedRobot === robot) this.selectedRobot = null;
 
                 this.updateRobotList();
                 this.render();
@@ -1187,17 +1716,14 @@
 
                 let html = '';
                 sortedByDepth.forEach(robot => {
-                    const isSelected = this.selectedRobot === robot;
+                    const isSelected  = this.selectedRobot === robot;
                     const isConnected = robot.connectedTo !== null;
-                    const depth = robot.getDepth();
-                    const chainPath = this.getChainPath(robot);
+                    const depth       = robot.getDepth();
+                    const chainPath   = this.getChainPath(robot);
 
-                    let connectionInfo = '';
-                    if (robot.connectedTo) {
-                        connectionInfo = `<div class="connection-status">Chain: ${chainPath}</div>`;
-                    } else {
-                        connectionInfo = `<div class="connection-status disconnected">Root robot - drag to move</div>`;
-                    }
+                    let connectionInfo = robot.connectedTo
+                        ? `<div class="connection-status">Chain: ${chainPath}</div>`
+                        : `<div class="connection-status disconnected">Root robot - drag to move</div>`;
 
                     html += `
                         <div class="robot-card ${isSelected ? 'selected' : ''} ${isConnected ? 'connected' : ''}" data-id="${robot.id}">
@@ -1229,127 +1755,6 @@
                 });
 
                 this.robotListEl.innerHTML = html;
-            }
-
-            render() {
-                this.ctx.fillStyle = '#16213e';
-                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-                const gridSize = 30;
-                this.ctx.strokeStyle = '#1e2a4a';
-                this.ctx.lineWidth = 1;
-
-                for (let x = 0; x < this.canvas.width; x += gridSize) {
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(x, 0);
-                    this.ctx.lineTo(x, this.canvas.height);
-                    this.ctx.stroke();
-                }
-
-                for (let y = 0; y < this.canvas.height; y += gridSize) {
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(0, y);
-                    this.ctx.lineTo(this.canvas.width, y);
-                    this.ctx.stroke();
-                }
-
-                const sortedByDepth = [...this.robots].sort((a, b) => a.getDepth() - b.getDepth());
-
-                sortedByDepth.forEach(robot => {
-                    const isConnected = robot.connectedTo !== null;
-                    robot.render(
-                        this.ctx,
-                        robot === this.selectedRobot,
-                        robot === this.hoveredRobot,
-                        isConnected
-                    );
-                });
-
-                // Draw sensor-to-sensor distance lines
-                for (const robot of this.robots) {
-                    if (robot.connectedTo) {
-                        const sensorPos = robot.getSensorPosition();
-                        const parentSensorPos = robot.connectedTo.getSensorPosition();
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(parentSensorPos.x, parentSensorPos.y);
-                        this.ctx.lineTo(sensorPos.x, sensorPos.y);
-                        this.ctx.strokeStyle = 'rgba(138, 74, 154, 0.5)';
-                        this.ctx.lineWidth = 2;
-                        this.ctx.setLineDash([6, 4]);
-                        this.ctx.stroke();
-                        this.ctx.setLineDash([]);
-                    }
-                }
-            }
-
-            animate() {
-                if (this.isPlaying && this.robots.length > 0) {
-                    for (const robot of this.robots) {
-                        if (!(robot.id in this.targetAngles)) {
-                            this.targetAngles[robot.id] = Math.random() * 360;
-                        }
-                        
-                        const targetAngle = this.targetAngles[robot.id];
-                        const currentAngle = robot.angle;
-                        let diff = targetAngle - currentAngle;
-                        
-                        if (diff > 180) diff -= 360;
-                        if (diff < -180) diff += 360;
-                        
-                        const step = this.playSpeed;
-                        
-                        if (Math.abs(diff) < step) {
-                            robot.angle = targetAngle;
-                            this.targetAngles[robot.id] = Math.random() * 360;
-                        } else {
-                            robot.angle += Math.sign(diff) * step;
-                        }
-                        
-                        if (robot.angle < 0) robot.angle += 360;
-                        robot.angle = robot.angle % 360;
-                        
-                        const angleEl = document.getElementById(`angle-${robot.id}`);
-                        const sliderEl = document.getElementById(`slider-${robot.id}`);
-                        if (angleEl) angleEl.textContent = `${Math.round(robot.angle)}deg`;
-                        if (sliderEl) sliderEl.value = robot.angle;
-                    }
-                    
-                    this.render();
-                }
-                
-                this.factorGraph.updateFromRobots(this.robots);
-                
-                const now = Date.now();
-                if (!this.lastGraphUpdate || now - this.lastGraphUpdate > this.updateInterval) {
-                    this.sendFactorGraph();
-                    this.lastGraphUpdate = now;
-                }
-                
-                if (this.factorGraph.nodes.length > 0) {
-                    const hasMotion = this.factorGraph.step();
-                    this.factorGraph.render();
-                    
-                    if (hasMotion) {
-                        requestAnimationFrame(() => this.animate());
-                    } else {
-                        setTimeout(() => this.animate(), 50);
-                    }
-                } else {
-                    this.factorGraph.render();
-                    requestAnimationFrame(() => this.animate());
-                }
-            }
-
-            startPlayback() {
-                this.isPlaying = true;
-                document.getElementById('play-btn').disabled = true;
-                document.getElementById('pause-btn').disabled = false;
-            }
-
-            stopPlayback() {
-                this.isPlaying = false;
-                document.getElementById('play-btn').disabled = false;
-                document.getElementById('pause-btn').disabled = true;
             }
         }
 

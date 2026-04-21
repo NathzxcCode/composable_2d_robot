@@ -2,3 +2,6 @@ numpy
 torch
 matplotlib
 requests
+fastapi
+uvicorn[standard]
+websockets
