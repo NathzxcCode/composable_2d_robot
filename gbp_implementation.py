@@ -6,16 +6,33 @@ from gbp_utilities import MeasModel, SquaredLoss, TukeyLoss, HuberLoss
 from gbp import GBPSettings, FactorGraph
 from gbp_factors import KinematicCalibModel, AnchorModel, DistanceMeasurementModel, EndpointModel, AngleMeasurementModel
 
-# Angle measurement noise standard deviation in degrees
-# Set to 0.0 to disable noise (deterministic)
-ANGLE_NOISE_STD_DEG = 2.0
-
-def add_noise_to_angle(angle_rad):
-    """Add Gaussian noise to an angle measurement."""
-    if ANGLE_NOISE_STD_DEG > 0:
-        noise_rad = random.gauss(0, math.radians(ANGLE_NOISE_STD_DEG))
+def add_noise_to_measurement(angle_rad, noise_std):
+    """Add Gaussian noise to a measurement."""
+    if noise_std > 0:
+        noise_rad = random.gauss(0, noise_std)
         return angle_rad + noise_rad
     return angle_rad
+
+def add_noise(data, angle_noise=False, angle_noise_deg=2.0, distance_noise=False, dist_noise_units=2.0):
+    """adds noise to measurments taken from the robot"""
+
+    limbs = data["limbs"]
+    connections = data["connections"]
+    limbs = sorted(limbs, key=lambda x: x['depth'])
+    connections = sorted(connections, key=lambda x: x['depth'])
+    
+    if angle_noise:
+        for limb in limbs:
+            limb["local_angle"] = add_noise_to_measurement(limb["local_angle"], angle_noise_deg)
+
+    if distance_noise:
+        for connection in connections:
+            connection["distance"] = add_noise_to_measurement(connection["distance"], dist_noise_units)
+
+    # print(limbs)
+    # print(connections)
+    return limbs, connections
+
 
 def forward_kinematics_step(prev_conn_pose, joint_angle_rad, limb_length):
     """
@@ -59,10 +76,7 @@ def forward_kinematics_step(prev_conn_pose, joint_angle_rad, limb_length):
 
 
 def update_factor_graph(data, fg):
-    limbs = data["limbs"]
-    connections = data["connections"]
-    limbs = sorted(limbs, key=lambda x: x['depth'])
-    connections = sorted(connections, key=lambda x: x['depth'])
+    limbs, connections = add_noise(data, angle_noise=True, angle_noise_deg=1, distance_noise=False)
 
     next_conn_pose = torch.tensor([0., 0., 0.])
     position_cov = torch.tensor([1000., 1000., 0.01])
@@ -155,71 +169,6 @@ distance_loss = TukeyLoss(1, torch.tensor([0.1]), 3.0)
 
 # initialise the factor graph
 fg = FactorGraph(gbp_settings)
-
-data = {
-    'limbs': [
-        {'id': 1, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 0, 'y': 0}, 
-         'endpoint': {'x': 140, 'y': 0}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 0}, 
-        {'id': 2, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 110, 'y': 22}, 
-         'endpoint': {'x': 250, 'y': 22}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 1}, 
-        {'id': 3, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 236, 'y': 5},
-         'endpoint': {'x': 376, 'y': 5}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 2}], 
-    'connections': [
-        {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 110, 'offset_y': 22}, 'distance': 112.17842929904127}, 
-        {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 126, 'offset_y': -17}, 'distance': 127.1416532848303}]}
-
-data1 = {
-    'limbs': [
-        {'id': 1, 'local_angle': 0, 'global_angle': 0, 'position': {'x': 0, 'y': 0}, 
-         'endpoint': {'x': 140, 'y': 0}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 0}, 
-        {'id': 2, 'local_angle': 2, 'global_angle': 2, 'position': {'x': 136, 'y': 4}, 
-         'endpoint': {'x': 275.9147157826734, 'y': 8.885929538350126}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 1}, 
-        {'id': 3, 'local_angle': 357, 'global_angle': 359, 'position': {'x': 270.8130631574704, 'y': 11.709604535894925}, 
-         'endpoint': {'x': 410.7917404793652, 'y': 9.266267634675103}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 2}], 
-    'connections': [
-        {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 136, 'offset_y': 4}, 'distance': 136.1732877351051}, 
-        {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 135, 'offset_y': 3}, 'distance': 134.87544045014846}]}
-
-data2 = {
-    'limbs': [
-        {'id': 1, 'local_angle': 5, 'global_angle': 5, 'position': {'x': 0, 'y': 0}, 
-        'endpoint': {'x': 139.46725773284436, 'y': 12.201803984672154}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 0}, 
-        {'id': 2, 'local_angle': 0, 'global_angle': 5, 'position': {'x': 135.13385596948683, 'y': 15.837959806048502}, 
-        'endpoint': {'x': 274.6011137023312, 'y': 28.039763790720656}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 1}, 
-        {'id': 3, 'local_angle': 357, 'global_angle': 362, 'position': {'x': 269.3586729836295, 'y': 30.592569171257537}, 
-        'endpoint': {'x': 409.2733887663029, 'y': 35.47849870960761}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 2}], 
-    'connections': [
-        {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 136, 'offset_y': 4}, 'distance': 136.05881081355966}, 
-        {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 135, 'offset_y': 3}, 'distance': 134.87544045014846}]}
-
-data3 = {
-    'limbs': [
-        {'id': 1, 'local_angle': 5, 'global_angle': 5, 'position': {'x': 0, 'y': 0}, 
-         'endpoint': {'x': 139.46725773284436, 'y': 12.201803984672154}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 0}, 
-        {'id': 2, 'local_angle': 2, 'global_angle': 7, 'position': {'x': 135.13385596948683, 'y': 15.837959806048502}, 
-         'endpoint': {'x': 274.0903171992719, 'y': 32.899667882769165}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 1}, 
-        {'id': 3, 'local_angle': 357, 'global_angle': 364, 'position': {'x': 268.7619784108499, 'y': 35.2679596206674}, 
-         'endpoint': {'x': 408.42094544722534, 'y': 45.03386594484493}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 2}], 
-    'connections': [
-        {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 136, 'offset_y': 4}, 'distance': 136.17328773510513}, 
-        {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 135, 'offset_y': 3}, 'distance': 134.87544045014857}]}
-
-data4 = {
-    'limbs': [
-        {'id': 1, 'local_angle': 5, 'global_angle': 5, 'position': {'x': 0, 'y': 0}, 
-         'endpoint': {'x': 139.46725773284436, 'y': 12.201803984672154}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 0}, 
-        {'id': 2, 'local_angle': 2, 'global_angle': 7, 'position': {'x': 135.13385596948683, 'y': 15.837959806048502}, 
-         'endpoint': {'x': 274.0903171992719, 'y': 32.899667882769165}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 1}, 
-        {'id': 3, 'local_angle': 350, 'global_angle': 357, 'position': {'x': 268.7619784108499, 'y': 35.2679596206674}, 
-         'endpoint': {'x': 408.57011327649025, 'y': 27.940925746655182}, 'sensor_offset': {'x': 120, 'y': 0}, 'limb_length': 140, 'depth': 2}], 
-    'connections': [
-        {'child_id': 2, 'parent_id': 1, 'depth': 1, 'calibration': {'offset_x': 136, 'offset_y': 4}, 'distance': 136.17328773510513}, 
-        {'child_id': 3, 'parent_id': 2, 'depth': 2, 'calibration': {'offset_x': 135, 'offset_y': 3}, 'distance': 134.3662205426787}]}
-
-# update_factor_graph(data1, fg)
-# update_factor_graph(data2, fg)
-# update_factor_graph(data3, fg)
-# update_factor_graph(data4, fg)
 
 count = 0
 with open("pose_data.json", "r") as f:

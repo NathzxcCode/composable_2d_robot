@@ -372,6 +372,17 @@ class Factor:
     def get_adj_means(self) -> torch.Tensor:
         adj_belief_means = [var.belief.mean() for var in self.adj_var_nodes]
         return torch.cat(adj_belief_means)
+    
+    # def get_adj_means(self) -> torch.Tensor:
+    #     ## updated version that handles angle wrapping ##
+    #     parts = []
+    #     for var in self.adj_var_nodes:
+    #         m = var.belief.mean()
+    #         if var.dofs == 3:
+    #             m = m.clone()
+    #             m[2] = torch.atan2(torch.sin(m[2]), torch.cos(m[2]))
+    #         parts.append(m)
+    #     return torch.cat(parts)
 
     def get_residual(self, eval_point: torch.Tensor = None) -> torch.Tensor:
         """ Compute the residual vector. """
