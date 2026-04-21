@@ -455,26 +455,6 @@
                 ctx.strokeStyle = '#5a7a9a';
                 ctx.lineWidth = 2;
                 ctx.stroke();
-
-                // Sensor position dot
-                const sensorPos = this.getSensorPosition();
-                ctx.beginPath();
-                ctx.arc(sensorPos.x, sensorPos.y, 8, 0, Math.PI * 2);
-                ctx.fillStyle = '#8a4a9a';
-                ctx.fill();
-                ctx.strokeStyle = '#aa6aaa';
-                ctx.lineWidth = 2;
-                ctx.stroke();
-
-                // Dashed line from joint to sensor
-                ctx.beginPath();
-                ctx.setLineDash([4, 4]);
-                ctx.moveTo(motorPos.x, motorPos.y);
-                ctx.lineTo(sensorPos.x, sensorPos.y);
-                ctx.strokeStyle = '#6a4a6a';
-                ctx.lineWidth = 1;
-                ctx.stroke();
-                ctx.setLineDash([]);
             }
 
             findClosestPointOnBody(px, py) {
@@ -1498,22 +1478,6 @@
                         robot.connectedTo !== null
                     );
                 });
-
-                // Draw sensor-to-sensor distance lines
-                for (const robot of this.robots) {
-                    if (robot.connectedTo) {
-                        const sensorPos       = robot.getSensorPosition();
-                        const parentSensorPos = robot.connectedTo.getSensorPosition();
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(parentSensorPos.x, parentSensorPos.y);
-                        this.ctx.lineTo(sensorPos.x, sensorPos.y);
-                        this.ctx.strokeStyle = 'rgba(138, 74, 154, 0.5)';
-                        this.ctx.lineWidth   = 2;
-                        this.ctx.setLineDash([6, 4]);
-                        this.ctx.stroke();
-                        this.ctx.setLineDash([]);
-                    }
-                }
 
                 // Draw calibration overlay on top
                 this.drawCalibration(this.ctx);

@@ -114,7 +114,7 @@ def update_factor_graph(data, fg):
               simulator JSON payload).
         fg:   FactorGraph instance (from create_gbp_solver()).
     """
-    limbs, connections = add_noise(data, angle_noise=False, angle_noise_deg=1, distance_noise=False)
+    limbs, connections = add_noise(data, angle_noise=True, angle_noise_deg=1, distance_noise=True, dist_noise_units=1)
 
     next_conn_pose = torch.tensor([0., 0., 0.])
     position_cov = torch.tensor([1000., 1000., 0.01])
@@ -223,10 +223,6 @@ def extract_calibrations(fg):
             })
     return results
 
-
-# ===================================================================
-# Batch offline solver – run directly: python gbp_implementation.py
-# ===================================================================
 if __name__ == "__main__":
     fg = create_gbp_solver()
 
