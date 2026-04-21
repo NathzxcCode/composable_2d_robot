@@ -13,7 +13,7 @@ def add_noise_to_measurement(angle_rad, noise_std):
         return angle_rad + noise_rad
     return angle_rad
 
-def add_noise(data, angle_noise=False, angle_noise_deg=2.0, distance_noise=False, dist_noise_units=2.0):
+def add_noise(data, angle_noise=True, angle_noise_deg=2.0, distance_noise=False, dist_noise_units=2.0):
     """adds noise to measurments taken from the robot"""
 
     limbs = data["limbs"]
@@ -76,7 +76,7 @@ def forward_kinematics_step(prev_conn_pose, joint_angle_rad, limb_length):
 
 
 def update_factor_graph(data, fg):
-    limbs, connections = add_noise(data, angle_noise=True, angle_noise_deg=1, distance_noise=False)
+    limbs, connections = add_noise(data, angle_noise=False, angle_noise_deg=1, distance_noise=False)
 
     next_conn_pose = torch.tensor([0., 0., 0.])
     position_cov = torch.tensor([1000., 1000., 0.01])
@@ -87,7 +87,7 @@ def update_factor_graph(data, fg):
         theta_rad = math.radians(limb["local_angle"])
 
         position_estimate, next_conn_pose = forward_kinematics_step(next_conn_pose, theta_rad, length)
-        print(id, position_estimate, next_conn_pose)
+        # print(id, position_estimate, next_conn_pose)
 
         # add limb nodes to the factor graph (global x, y, theta of endpoint)
         fg.add_var_node(id=id,
@@ -158,10 +158,10 @@ gbp_settings = GBPSettings(
 )
 
 # loss functions for the factors
-kinematic_loss = HuberLoss(3, torch.tensor([0.1, 0.1, 1e-4]), 3.0)
+kinematic_loss = HuberLoss(3, torch.tensor([0.5, 0.5, 1e-4]), 3.0)
 anchor_loss = SquaredLoss(3, torch.tensor([1e-4, 1e-4, 1e-6]))
 endpoint_loss = SquaredLoss(3, torch.tensor([1e-3, 1e-3, 1e-5]))
-distance_loss = TukeyLoss(1, torch.tensor([0.1]), 3.0)
+distance_loss = TukeyLoss(1, torch.tensor([0.5]), 3.0)
 # angle_loss = HuberLoss(1, torch.tensor([1e-4]), 3.0)
 
 # Instantiate the models
@@ -185,7 +185,7 @@ for pose in poses[:N]:
     #     fg.gbp_solve(n_iters=5)
     count += 1
 
-fg.gbp_solve(n_iters=50)
+fg.gbp_solve(n_iters=100)
 
 print("Factor graph updated successfully!")
 print(f"Variables: {len(fg.var_nodes)}")
