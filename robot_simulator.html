@@ -859,32 +859,37 @@
                 const connections = robots.filter(r => r.connectedTo);
                 if (connections.length === 0) return;
 
-                const ctx        = this.ctx;
-                const lineHeight = 17;
-                const padX       = 10;
-                const panelRows  = connections.length * 3 + 1; // header + 3 rows per connection
-                const panelH     = panelRows * lineHeight + 14;
-                const panelY     = this.canvas.height - panelH - 6;
-                const panelW     = this.canvas.width - padX * 2;
+                const ctx         = this.ctx;
+                const headerSize  = 13;  // px – matches sidebar section titles
+                const labelSize   = 13;  // px – connection label
+                const valueSize   = 12;  // px – numeric rows
+                const lineHeight  = 22;
+                const padX        = 12;
+                const padY        = 12;
+                // rows: header + per connection: label + true + est + gap-row
+                const rowCount    = 1 + connections.length * 4;
+                const panelH      = padY * 2 + rowCount * lineHeight;
+                const panelY      = this.canvas.height - panelH - 8;
+                const panelW      = this.canvas.width - padX * 2;
 
-                // Panel background
-                ctx.fillStyle = 'rgba(10, 10, 25, 0.82)';
+                // Panel background – matches sidebar card style
+                ctx.fillStyle   = '#1a1a2e';
                 ctx.strokeStyle = '#2a2a4a';
-                ctx.lineWidth = 1;
+                ctx.lineWidth   = 1;
                 ctx.beginPath();
-                ctx.roundRect(padX, panelY, panelW, panelH, 5);
+                ctx.roundRect(padX, panelY, panelW, panelH, 6);
                 ctx.fill();
                 ctx.stroke();
 
-                let y = panelY + lineHeight;
+                let y = panelY + padY + lineHeight * 0.5;
 
-                // Section header
-                ctx.fillStyle = '#555577';
-                ctx.font = 'bold 10px monospace';
-                ctx.textAlign = 'left';
+                // Section header – matches ".panel-title" style
+                ctx.fillStyle    = '#888';
+                ctx.font         = `500 ${headerSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+                ctx.textAlign    = 'left';
                 ctx.textBaseline = 'middle';
-                ctx.fillText('CALIBRATION', padX + 6, y);
-                y += lineHeight;
+                ctx.fillText('Calibration Offsets', padX + 8, y);
+                y += lineHeight * 1.1;
 
                 for (const child of connections) {
                     const parent    = child.connectedTo;
@@ -898,40 +903,37 @@
                     const trueX = child.connectionOffset.x - parent.limbLength;
                     const trueY = child.connectionOffset.y;
 
-                    // Row label: "limb N→M"
-                    ctx.fillStyle = '#6688aa';
-                    ctx.font = 'bold 10px monospace';
-                    ctx.fillText(`limb ${parent.id} \u2192 ${child.id}`, padX + 6, y);
+                    // Connection label – matches ".robot-name" weight
+                    ctx.fillStyle = '#eee';
+                    ctx.font      = `600 ${labelSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+                    ctx.fillText(`Robot ${parent.id} \u2192 ${child.id}`, padX + 8, y);
                     y += lineHeight;
 
                     // True row
+                    const sign = v => v >= 0 ? '+' : '';
+                    const fmt  = v => `${sign(v)}${v.toFixed(4)}`;
+
                     ctx.fillStyle = '#00ff88';
-                    ctx.font = '10px monospace';
-                    ctx.fillText('TRUE', padX + 6, y);
-                    ctx.fillStyle = '#ccddcc';
-                    ctx.fillText(
-                        `x: ${trueX >= 0 ? '+' : ''}${trueX.toFixed(1).padStart(6)}   y: ${trueY >= 0 ? '+' : ''}${trueY.toFixed(1).padStart(6)}`,
-                        padX + 44, y
-                    );
+                    ctx.font      = `500 ${valueSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+                    ctx.fillText('True', padX + 8, y);
+                    ctx.fillStyle = '#aabbaa';
+                    ctx.fillText(`x: ${fmt(trueX)}    y: ${fmt(trueY)}`, padX + 52, y);
                     y += lineHeight;
 
                     // Estimated row
                     if (calibData) {
                         const [ex, ey] = calibData.mean;
                         ctx.fillStyle = '#00eeff';
-                        ctx.font = '10px monospace';
-                        ctx.fillText('EST ', padX + 6, y);
-                        ctx.fillStyle = '#cceeff';
-                        ctx.fillText(
-                            `x: ${ex >= 0 ? '+' : ''}${ex.toFixed(1).padStart(6)}   y: ${ey >= 0 ? '+' : ''}${ey.toFixed(1).padStart(6)}`,
-                            padX + 44, y
-                        );
+                        ctx.font      = `500 ${valueSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+                        ctx.fillText('Est', padX + 8, y);
+                        ctx.fillStyle = '#aaccdd';
+                        ctx.fillText(`x: ${fmt(ex)}    y: ${fmt(ey)}`, padX + 52, y);
                     } else {
-                        ctx.fillStyle = '#444466';
-                        ctx.font = '10px monospace';
-                        ctx.fillText('EST   x:      \u2014       y:      \u2014', padX + 6, y);
+                        ctx.fillStyle = '#555577';
+                        ctx.font      = `500 ${valueSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+                        ctx.fillText('Est    x: \u2014           y: \u2014', padX + 8, y);
                     }
-                    y += lineHeight + 2; // small gap between connections
+                    y += lineHeight * 1.4; // gap between connections
                 }
             }
 
@@ -1423,27 +1425,17 @@
                     ctx.moveTo(-crossSize, 0); ctx.lineTo(crossSize, 0);
                     ctx.moveTo(0, -crossSize); ctx.lineTo(0, crossSize);
                     ctx.stroke();
-                    ctx.fillStyle = '#00ff88';
-                    ctx.font = 'bold 10px monospace';
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'bottom';
-                    ctx.fillText('TRUE', crossSize + 3, -2);
                     ctx.restore();
 
                     // ── Solver estimate ────────────────────────────────────────
                     const [cx, cy] = calib.mean;
                     const estWorld  = calibOffsetToWorld(parentRobot, cx, cy);
 
-                    // Cyan filled dot + label for mean estimate
+                    // Cyan filled dot for mean estimate
                     ctx.beginPath();
                     ctx.arc(estWorld.x, estWorld.y, 5, 0, 2 * Math.PI);
                     ctx.fillStyle = '#00eeff';
                     ctx.fill();
-                    ctx.fillStyle = '#00eeff';
-                    ctx.font = 'bold 10px monospace';
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'top';
-                    ctx.fillText('EST', estWorld.x + 8, estWorld.y + 2);
 
                     // ── Uncertainty ellipse ────────────────────────────────────
                     const { angle, rx, ry } = eigenDecompose2x2(calib.cov_xy);
