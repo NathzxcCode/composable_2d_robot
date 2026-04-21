@@ -217,13 +217,38 @@ def anchor_meas_fn(x: torch.Tensor, T_origin: torch.Tensor = None):
     # 3. Apply the upgraded Log map to get the 3D residual vector
     return SE2_log_map(delta_T)
 
-def anchor_jac_fn(x: torch.Tensor, T_origin: torch.Tensor = None):
+def anchor_jac_fn_old(x: torch.Tensor, T_origin: torch.Tensor = None):
     """
     The Jacobian for the anchor.
     Since r = Log(N1^-1 * T_origin), the gradient wrt N1 is -Identity.
     """
     # The output is a 3x3 matrix (3-DOF residual wrt 3-DOF state)
     return -torch.eye(3)
+
+def anchor_jac_fn(x: torch.Tensor, T_origin: torch.Tensor = None):
+    """
+    Correct analytic Jacobian for the anchor factor.
+    
+    Residual: r = Log(N1^{-1} @ T_origin)
+    
+    Near zero residual, r ≈ R(-θ1) @ [x_origin - x1, y_origin - y1; θ_origin - θ1]
+    
+    Differentiating w.r.t. [x1, y1, θ1]:
+      ∂(x_origin - x1)/∂x1 = -1,  ∂/∂y1 = 0,  ∂/∂θ1 = 0
+      ∂(y_origin - y1)/∂y1 = -1,  ∂/∂x1 = 0,  ∂/∂θ1 = 0
+      ∂(θ_origin - θ1)/∂θ1 = -1
+    
+    So J_delta = -I, and J = R(-θ1) @ (-I) = -R(-θ1)
+    
+    Output: 3x3 matrix (3-DOF residual wrt 3-DOF state)
+    """
+    c1 = torch.cos(x[2])
+    s1 = torch.sin(x[2])
+    return -torch.tensor([
+        [ c1, s1, 0.],
+        [-s1, c1, 0.],
+        [ 0., 0., 1.]
+    ])
 
 class AnchorModel(MeasModel):
     def __init__(self, loss: SquaredLoss, T_origin: torch.tensor) -> None:
@@ -254,7 +279,7 @@ def endpoint_meas_fn(x: torch.Tensor, L_last: float):
     
     return SE2_log_map(delta_T)
 
-def endpoint_jac_fn(x: torch.Tensor, L_last: float):
+def endpoint_jac_fn_old(x: torch.Tensor, L_last: float):
     """
     Jacobian for the Endpoint Factor.
     Output: 3x6 matrix (Residual is 3D, States are Joint + Endpoint)
@@ -272,6 +297,49 @@ def endpoint_jac_fn(x: torch.Tensor, L_last: float):
     J_endpoint = -torch.eye(3)
     
     # Concatenate into a 3x6 matrix
+    return torch.cat([J_joint, J_endpoint], dim=1)
+
+def endpoint_jac_fn(x: torch.Tensor, L_last: float):
+    """
+    Correct analytic Jacobian for the endpoint factor.
+    
+    Residual: r = Log(E^{-1} @ N_last @ L_link)
+    x: [x_j, y_j, θ_j, x_e, y_e, θ_e]
+    
+    T_pred = N_last @ L_link gives:
+      x_pred = x_j + L_last * cos(θ_j)
+      y_pred = y_j + L_last * sin(θ_j)
+      θ_pred = θ_j
+    
+    Near zero residual:
+      r ≈ R(-θ_e) @ [x_pred - x_e, y_pred - y_e; θ_pred - θ_e]
+    
+    Output: 3x6 matrix (3-DOF residual wrt Joint[3] + Endpoint[3])
+    """
+    th_j = x[2]
+    th_e = x[5]
+    cj, sj = torch.cos(th_j), torch.sin(th_j)
+    ce, se = torch.cos(th_e), torch.sin(th_e)
+    # R(-θ_e): rotates world-frame differences into endpoint's local frame
+    R_e = torch.tensor([
+        [ ce, se, 0.],
+        [-se, ce, 0.],
+        [ 0., 0., 1.]
+    ])
+    # Jacobian w.r.t. Joint Node [x_j, y_j, θ_j]
+    # ∂x_pred/∂x_j = 1,  ∂x_pred/∂y_j = 0,  ∂x_pred/∂θ_j = -L_last * sin(θ_j)
+    # ∂y_pred/∂x_j = 0,  ∂y_pred/∂y_j = 1,  ∂y_pred/∂θ_j =  L_last * cos(θ_j)
+    # ∂θ_pred/∂x_j = 0,  ∂θ_pred/∂y_j = 0,  ∂θ_pred/∂θ_j = 1
+    J_delta_joint = torch.tensor([
+        [1., 0., -L_last * sj],
+        [0., 1.,  L_last * cj],
+        [0., 0.,  1.]
+    ])
+    J_joint = R_e @ J_delta_joint
+    # Jacobian w.r.t. Endpoint Node [x_e, y_e, θ_e]
+    # ∂Δx/∂x_e = -1, ∂Δy/∂y_e = -1, ∂Δθ/∂θ_e = -1  (all others zero)
+    # After frame rotation: J_endpoint = R_e @ (-I) = -R_e
+    J_endpoint = -R_e
     return torch.cat([J_joint, J_endpoint], dim=1)
 
 class EndpointModel(MeasModel):

@@ -222,7 +222,7 @@ data4 = {
 # update_factor_graph(data4, fg)
 
 count = 0
-with open("pose_data_x0_y1_joint2_rotate.json", "r") as f:
+with open("pose_data.json", "r") as f:
     poses = json.load(f)
 
 # Use first N poses
