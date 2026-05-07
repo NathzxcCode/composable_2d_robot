@@ -6,31 +6,25 @@ from gbp_utilities import MeasModel, SquaredLoss, TukeyLoss, HuberLoss
 from gbp import GBPSettings, FactorGraph
 from gbp_factors import KinematicCalibModel, AnchorModel, DistanceMeasurementModel, EndpointModel, AngleMeasurementModel
 
-# ===================================================================
-# Setup: shared settings and loss functions
-# ===================================================================
-gbp_settings = GBPSettings(
-    damping=0.95,
-    beta=0.2,
-    num_undamped_iters=3,
-    min_linear_iters=10,
-    dropout=0.0,
-)
+import gtsam
+from gtsam import Pose2, symbol
+import numpy as np
 
-# loss functions for the factors
-kinematic_loss = HuberLoss(3, torch.tensor([0.5, 0.5, 1e-4]), 3.0)
-anchor_loss = SquaredLoss(3, torch.tensor([1e-4, 1e-4, 1e-6]))
-endpoint_loss = SquaredLoss(3, torch.tensor([1e-3, 1e-3, 1e-5]))
-distance_loss = TukeyLoss(1, torch.tensor([0.5]), 3.0)
+# Create noise models
+KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5, 0.5, 0.5]))
+ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 1e-4]))
+CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.1, 0.1]))
+SENSOR_CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.01, 0.01, 0.01]))
+SENSOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1]))
 
+num_iters = 0
 
 def create_gbp_solver():
     """
     Create and return a fresh FactorGraph ready to receive poses.
     Call this once per calibration session (e.g. on WebSocket connect or reset).
     """
-    fg = FactorGraph(gbp_settings)
-    fg.step_count = 0   # tracks how many poses have been added
+    fg = gtsam.NonlinearFactorGraph()
     return fg
 
 
@@ -48,16 +42,20 @@ def add_noise(data, angle_noise=True, angle_noise_deg=2.0, distance_noise=False,
     connections = data["connections"]
     limbs = sorted(limbs, key=lambda x: x['depth'])
     connections = sorted(connections, key=lambda x: x['depth'])
+
+    limbs_dict = {}
+    for limb in limbs:
+        limbs_dict[limb["id"]] = limb
     
     if angle_noise:
-        for limb in limbs:
+        for limb in limbs_dict.values():
             limb["local_angle"] = add_noise_to_measurement(limb["local_angle"], angle_noise_deg)
 
     if distance_noise:
         for connection in connections:
             connection["distance"] = add_noise_to_measurement(connection["distance"], dist_noise_units)
 
-    return limbs, connections
+    return limbs_dict, connections
 
 
 def forward_kinematics_step(prev_conn_pose, joint_angle_rad, limb_length):
@@ -101,89 +99,70 @@ def forward_kinematics_step(prev_conn_pose, joint_angle_rad, limb_length):
     return current_limb_pose, next_conn_pose
 
 
-def update_factor_graph(data, fg):
-    """
-    Ingest one pose observation into the factor graph.
-
-    Adds a new pose variable node per limb and a singleton calibration node
-    per non-root connection (created only on first observation).
-    Adds anchor, kinematic-calibration, and distance factors.
-
-    Args:
-        data: dict with keys "limbs" and "connections" (same schema as the
-              simulator JSON payload).
-        fg:   FactorGraph instance (from create_gbp_solver()).
-    """
+def update_factor_graph(data, graph, values):
     limbs, connections = add_noise(data, angle_noise=True, angle_noise_deg=1, distance_noise=True, dist_noise_units=1)
 
-    print()
-    print(limbs)
-    print(connections)
-    print()
-
     next_conn_pose = torch.tensor([0., 0., 0.])
-    position_cov = torch.tensor([1000., 1000., 0.01])
 
-    for limb in limbs:
-        id = str(limb["id"])
+    for connection in connections:
+        parent_id = connection["parent_id"]
+        child_id = connection["child_id"]
+        
+        parent_limb_length = limbs[parent_id]["limb_length"]
+        parent_limb_sensor_offset = limbs[parent_id]["sensor_offset"]
+        child_limb_sensor_offset = limbs[child_id]["sensor_offset"]
+        angle_measure = limbs[child_id]["local_angle"]
+        angle_measure_rad = math.radians(angle_measure)
+        distance_measure = connection["distance"]
+
+        parent_id = int(str(parent_id) + str(num_iters))
+        child_id = int(str(child_id) + str(num_iters))
+        
+        L1_key = symbol('L', parent_id)
+        L2_key = symbol('L', child_id)
+        CL2_key = symbol('C', child_id)
+        S1_key = symbol('S', parent_id)
+        CS1_key = symbol('Z', parent_id)
+        S2_key = symbol('S', child_id)
+        CS2_key = symbol('Z', child_id)
+
+        # 2. Define custom factor using kinematics model
+        graph.add(make_kinematics_factor(L1_key, CL2_key, L2_key, parent_limb_length, angle_measure_rad, KINEMATIC_NOISE)) # joint connecting parent and child
+        graph.add(make_kinematics_factor(L1_key, CS1_key, S1_key, parent_limb_sensor_offset, 0, KINEMATIC_NOISE)) # parent sensor position
+        graph.add(make_kinematics_factor(L2_key, CS2_key, S2_key, child_limb_sensor_offset, 0, KINEMATIC_NOISE)) # child sensor position
+
+        # 3. Add sensor distance measurements as factor
+        graph.add(gtsam.RangeFactorPose2(S1_key, S2_key, distance_measure, SENSOR_NOISE))
+
+    for id, limb in limbs.keys():
         length = limb["limb_length"]
         theta_rad = math.radians(limb["local_angle"])
 
         position_estimate, next_conn_pose = forward_kinematics_step(next_conn_pose, theta_rad, length)
 
-        # add limb nodes to the factor graph (global x, y, theta of endpoint)
-        fg.add_var_node(id=id,
-                        dofs=3,
-                        prior_mean=position_estimate,
-                        prior_diag_cov=position_cov,  # Large variance = weak prior
-                        properties=limb)
+        id = int(str(id) + str(num_iters))
+        L_key = symbol('L', id)
+        CL_key = symbol('C', id)
+        S_key = symbol('S', id)
+        CS_key = symbol('Z', id)
+
+        values.insert(L_key, gtsam.Pose2(position_estimate)) # limb
+        values.insert(S_key, gtsam.Pose2(next_conn_pose)) # sensor
         
-        # add calibration nodes for non-base limbs (singleton – created once)
-        if fg.var_nodes.get("calib"+id) is None:
+        if num_iters == 0:
+            priorMean = gtsam.Pose2(0.0, 0.0, 0.0)  # prior of zero
             if limb["depth"] != 0:
-                fg.add_var_node(id="calib"+id,
-                                dofs=3,
-                                prior_mean=torch.tensor([0., 0., 0.]), 
-                                prior_diag_cov=torch.tensor([1000., 1000., 0.01]),
-                                properties={})
-        # add anchor to base node
+                graph.add(gtsam.PriorFactorPose2(CL_key, priorMean, CALIB_NOISE)) # joint calibration to graph
+                values.insert(CL_key, gtsam.Pose2(0.0, 0.0, 0.0)) # limb calibration initial value
+
+            graph.add(gtsam.PriorFactorPose2(CS_key, priorMean, SENSOR_CALIB_NOISE)) # sensor 1 calibration
+            values.insert(CS_key, gtsam.Pose2(0.0, 0.0, 0.0)) # sensor 1 calibration
+
         if limb["depth"] == 0:
-            base_node = fg.var_nodes[id][-1]  # last node is current node
-            fg.add_factor(measurement=torch.tensor([0., 0., 0.]),
-                          meas_model=AnchorModel(anchor_loss, T_origin=position_estimate),
-                          adj_var_nodes=[base_node],
-                          properties={})
-            
-    for connection in connections:
-        parent_id = str(connection["parent_id"])
-        child_id = str(connection["child_id"])
-        
-        parent_node = fg.var_nodes[parent_id][-1]
-        child_node = fg.var_nodes[child_id][-1]
-        calib_node = fg.var_nodes["calib"+child_id][-1]   # only one node in list shared across factor graph
-        parent_limb_length = parent_node.properties["limb_length"]
+            anchorPrior = gtsam.Pose2(0.0, 0.0, 0.0)  # prior at origin
+            graph.add(gtsam.PriorFactorPose2(L_key, anchorPrior, ANCHOR_NOISE))
 
-        angle_measure = child_node.properties["local_angle"]
-        angle_measure_rad = math.radians(angle_measure)
-        distance_measure = connection["distance"]
-
-        # add kinematics factors
-        fg.add_factor(measurement=torch.tensor([0., 0., 0.]),
-                      meas_model=KinematicCalibModel(kinematic_loss, L=parent_limb_length, theta_joint=angle_measure_rad),
-                      adj_var_nodes=[parent_node, calib_node, child_node], 
-                      properties={})
-        
-        # add distance measurement factors
-        parent_limb_sensor_offset = parent_node.properties["sensor_offset"]
-        child_limb_sensor_offset = child_node.properties["sensor_offset"]
-        s1 = torch.tensor([parent_limb_sensor_offset["x"], parent_limb_sensor_offset["y"]])
-        s2 = torch.tensor([child_limb_sensor_offset["x"], child_limb_sensor_offset["y"]])
-        fg.add_factor(measurement=torch.tensor([distance_measure]),
-                      meas_model=DistanceMeasurementModel(distance_loss, s1=s1, s2=s2),
-                      adj_var_nodes=[parent_node, child_node], 
-                      properties={})
-
-    fg.step_count += 1
+    num_iters += 1
 
 
 def extract_calibrations(fg):
