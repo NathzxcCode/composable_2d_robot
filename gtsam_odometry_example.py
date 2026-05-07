@@ -26,19 +26,25 @@ class Node:
         self.dofs = dim
         self.belief = Gaussian(dim, eta, lam)
         self.adj_factors = adj_factors
-        self.variableID = ID
+        self.ID = ID
 
     def update_belief(self) -> None:
         """ Update local belief estimate by taking product of all incoming messages along all edges. """
-        self.belief.eta = torch.zeros(self.dofs)
-        self.belief.lam = torch.eye(self.dofs) * 1e-6
+        self.belief.eta = torch.zeros(self.dofs, dtype=torch.float64)
+        self.belief.lam = torch.eye(self.dofs, dtype=torch.float64) * 1e-6
         
         for factor_id in self.adj_factors:  # messages from other adjacent variables
             factor = factors[factor_id]
-            print(factor.adj_vIDs, self.variableID)
-            message_ix = factor.adj_vIDs.index(self.variableID)
+            message_ix = factor.adj_vIDs.index(self.ID)
             self.belief.eta += factor.messages[message_ix].eta
             self.belief.lam += factor.messages[message_ix].lam
+
+        # print(self.belief.eta)
+
+    def get_delta(self):
+        # Solve for the mean update: delta_x = inv(Lambda) * eta
+        delta_x = torch.linalg.solve(self.belief.lam, self.belief.eta)
+        return delta_x
 
 class Factor:
     def __init__(self, node_dofs, adj_vIDs):
@@ -64,7 +70,7 @@ class Factor:
                 start += nodes[adj_node_id].dofs
 
             # Divide up parameters of distribution
-            mess_dofs = nodes[adj_node_id].dofs
+            mess_dofs = nodes[self.adj_vIDs[v]].dofs
             eo = eta_factor[start_dim:start_dim + mess_dofs]
             eno = torch.cat((eta_factor[:start_dim], eta_factor[start_dim + mess_dofs:]))
 
@@ -85,7 +91,7 @@ class Factor:
             new_message_eta = eo - lono @ torch.inverse(lnono) @ eno
             messages_eta.append((1 - damping) * new_message_eta + damping * self.messages[v].eta)
             messages_lam.append((1 - damping) * new_message_lam + damping * self.messages[v].lam)
-            start_dim += nodes[adj_node_id].dofs
+            start_dim += nodes[self.adj_vIDs[v]].dofs
 
         for v in range(len(self.adj_vIDs)):
             self.messages[v].lam = messages_lam[v]
@@ -124,43 +130,53 @@ def main():
     # For illustrative purposes, these have been deliberately set to incorrect values
     initial = gtsam.Values()
     initial.insert(1, gtsam.Pose2(0.5, 0.0, 0.2))
-    nodes[1] = Node(dim=3, eta=torch.zeros(3), lam=torch.eye(3) * 1e-6, adj_factors=[0,1], ID=1)
+    nodes[1] = Node(dim=3, eta=torch.zeros(3, dtype=torch.float64), lam=torch.eye(3, dtype=torch.float64) * 1e-6, adj_factors=[0,1], ID=1)
     initial.insert(2, gtsam.Pose2(2.3, 0.1, -0.2))
-    nodes[2] = Node(dim=3, eta=torch.zeros(3), lam=torch.eye(3) * 1e-6, adj_factors=[1,2], ID=2)
+    nodes[2] = Node(dim=3, eta=torch.zeros(3, dtype=torch.float64), lam=torch.eye(3, dtype=torch.float64) * 1e-6, adj_factors=[1,2], ID=2)
     initial.insert(3, gtsam.Pose2(4.1, 0.1, 0.1))
-    nodes[3] = Node(dim=3, eta=torch.zeros(3), lam=torch.eye(3) * 1e-6, adj_factors=[2], ID=3)
+    nodes[3] = Node(dim=3, eta=torch.zeros(3, dtype=torch.float64), lam=torch.eye(3, dtype=torch.float64) * 1e-6, adj_factors=[2], ID=3)
     print("\nInitial Estimate:\n{}".format(initial))
 
     # optimize using Levenberg-Marquardt optimization
     params = gtsam.LevenbergMarquardtParams()
     optimizer = gtsam.LevenbergMarquardtOptimizer(graph, initial, params)
     result = optimizer.optimize()
+    print(result)
 
-    ## custom GBP implementation
-    gaussian_graph = graph.linearize(initial)
+    for i in range(100):
+        ## custom GBP implementation
+        gaussian_graph = graph.linearize(initial)
+        # Iterate through factors to update your local GBP factors
+        for factor_id in range(gaussian_graph.size()):
+            factor = gaussian_graph.at(factor_id)
+            if factor is not None:
+                # Extract Precision matrix lambda
+                # information() returns A.T @ A (weighted by noise)
+                lam = factor.information() 
+                lam = torch.from_numpy(lam) # reduces precision can be removed later on
 
-    # Iterate through factors to update your local GBP factors
-    for factor_id in range(gaussian_graph.size()):
-        factor = gaussian_graph.at(factor_id)
-        if factor is not None:
-            # Extract Precision matrix lambda
-            # information() returns A.T @ A (weighted by noise)
-            lam = factor.information() 
-            lam = torch.from_numpy(lam).float() # reduces precision can be removed later on
+                # Extract information vector
+                # calculate A.T @ b (weighted by noise)
+                A, b = factor.jacobian()
+                eta = torch.from_numpy(A.T @ b).flatten()
+                
+                # Identify which nodes this factor connects to
+                # factor.keys() returns the integer IDs (variableID)
+                adj_vIDs = list(factor.keys())
+                
+                factors[factor_id].compute_messages(eta, lam)
 
-            # Extract information vector
-            # calculate A.T @ b (weighted by noise)
-            A, b = factor.jacobian()
-            eta = torch.from_numpy(A.T @ b).flatten().float()
+        deltas = gtsam.VectorValues()        
+        for node_id, node_obj in nodes.items():
+            node_obj.update_belief()
+
+            delta_x = node_obj.get_delta()
+            deltas.insert(node_id, delta_x)
             
-            # Identify which nodes this factor connects to
-            # factor.keys() returns the integer IDs (variableID)
-            adj_vIDs = list(factor.keys())
-            
-            factors[factor_id].compute_messages(eta, lam)
-            
-    for node in nodes.values():
-       node.update_belief() 
+        initial = initial.retract(deltas)
+
+    for node_id, node_obj in nodes.items():
+        print(node_obj.belief.eta)
 
     # print(gaussian_graph)
 
