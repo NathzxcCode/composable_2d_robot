@@ -52,6 +52,9 @@ class Factor:
         self.adj_vIDs = adj_vIDs
         self.messages = [Gaussian(dof) for dof in node_dofs]
 
+    def reset_messages(self):
+        self.messages = [Gaussian(dof) for dof in self.node_dofs]
+
     def compute_messages(self, eta, lam, damping: float = 0.) -> None:
         """ Compute all outgoing messages from the factor. """
         messages_eta, messages_lam = [], []
@@ -143,40 +146,41 @@ def main():
     result = optimizer.optimize()
     print(result)
 
-    for i in range(100):
-        ## custom GBP implementation
+    N_OUTER = 10        # relinearization steps
+    N_INNER = 10        # GBP message-passing iterations per linearization
+    for outer in range(N_OUTER):
+        # Step 1: Linearize at current estimate
         gaussian_graph = graph.linearize(initial)
-        # Iterate through factors to update your local GBP factors
+        # Step 2: Reset all messages (new linearization = fresh start)
+        for factor in factors:
+            factor.reset_messages()
+        # Reset node beliefs too
+        for node_obj in nodes.values():
+            node_obj.belief.eta = torch.zeros(node_obj.dofs, dtype=torch.float64)
+            node_obj.belief.lam = torch.eye(node_obj.dofs, dtype=torch.float64) * 1e-6
+        # Step 3: Extract eta, lam for each factor once
+        factor_eta_lam = []
         for factor_id in range(gaussian_graph.size()):
             factor = gaussian_graph.at(factor_id)
-            if factor is not None:
-                # Extract Precision matrix lambda
-                # information() returns A.T @ A (weighted by noise)
-                lam = factor.information() 
-                lam = torch.from_numpy(lam) # reduces precision can be removed later on
-
-                # Extract information vector
-                # calculate A.T @ b (weighted by noise)
-                A, b = factor.jacobian()
-                eta = torch.from_numpy(A.T @ b).flatten()
-                
-                # Identify which nodes this factor connects to
-                # factor.keys() returns the integer IDs (variableID)
-                adj_vIDs = list(factor.keys())
-                
-                factors[factor_id].compute_messages(eta, lam)
-
-        deltas = gtsam.VectorValues()        
+            A, b = factor.jacobian()
+            lam = torch.from_numpy(factor.information())
+            eta = torch.from_numpy(A.T @ b).flatten()
+            factor_eta_lam.append((eta, lam))
+        # Step 4: Run GBP inner loop on the FIXED linearized graph
+        for inner in range(N_INNER):
+            for factor_id, factor_obj in enumerate(factors):
+                eta, lam = factor_eta_lam[factor_id]
+                factor_obj.compute_messages(eta, lam)
+            for node_obj in nodes.values():
+                node_obj.update_belief()
+        # Step 5: Retract once using the converged GBP beliefs
+        deltas = gtsam.VectorValues()
         for node_id, node_obj in nodes.items():
-            node_obj.update_belief()
-
             delta_x = node_obj.get_delta()
             deltas.insert(node_id, delta_x)
-            
         initial = initial.retract(deltas)
 
-    for node_id, node_obj in nodes.items():
-        print(node_obj.belief.eta)
+    print(initial)
 
     # print(gaussian_graph)
 
