@@ -44,7 +44,8 @@ import uvicorn
 # Ensure we can import sibling modules regardless of working directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from gbp_implementation import create_gbp_solver, update_factor_graph, extract_calibrations
+from gtsam_implementation import create_gbp_solver, update_factor_graph, extract_calibrations
+# from gbp_implementation import create_gbp_solver, update_factor_graph, extract_calibrations
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -167,7 +168,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     # 4. Compute current energy
                     try:
-                        energy = float(fg.energy().item())
+                        energy = float(fg.energy())
                     except Exception:
                         energy = 0.0
 
