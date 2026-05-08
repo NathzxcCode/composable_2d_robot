@@ -5,7 +5,9 @@ import json
 import gtsam
 from gtsam import symbol
 import numpy as np
-import torch  # kept only for forward_kinematics_step (unchanged from original)
+import torch
+
+from gbp_utilities import Gaussian
 
 # ---------------------------------------------------------------------------
 # Noise models
@@ -90,51 +92,281 @@ def make_kinematics_factor(key_n1: int, key_c: int, key_n2: int,
 
 
 # ---------------------------------------------------------------------------
-# GTSAMSolver — wraps graph + values + step counter, mirrors old fg interface
+# GBP building blocks
+# ---------------------------------------------------------------------------
+
+class GBPNode:
+    """
+    Represents a single variable node in the GBP message-passing graph.
+
+    Belief is stored as information-form Gaussian (eta, lam) in the LOCAL
+    tangent-space (delta-space) relative to the current linearisation point.
+    get_delta() solves lam * delta = eta to give the retract step.
+    """
+    DOF = 3  # all nodes are Pose2
+
+    def __init__(self, key: int, adj_factor_indices: list):
+        self.key = key
+        self.adj_factor_indices = list(adj_factor_indices)  # indices into gbp_factors list
+        # Belief in information form – reset each outer (linearisation) iteration
+        self.belief_eta = torch.zeros(self.DOF, dtype=torch.float64)
+        self.belief_lam = torch.eye(self.DOF, dtype=torch.float64) * 1e-6
+
+    def reset_belief(self) -> None:
+        self.belief_eta = torch.zeros(self.DOF, dtype=torch.float64)
+        self.belief_lam = torch.eye(self.DOF, dtype=torch.float64) * 1e-6
+
+    def update_belief(self, gbp_factors: list) -> None:
+        """Accumulate messages from all adjacent factors."""
+        self.reset_belief()
+        for fi in self.adj_factor_indices:
+            factor = gbp_factors[fi]
+            msg_ix = factor.adj_keys.index(self.key)
+            self.belief_eta += factor.messages[msg_ix].eta
+            self.belief_lam += factor.messages[msg_ix].lam
+
+    def get_delta(self) -> torch.Tensor:
+        """Solve lam * delta = eta for the tangent-space correction."""
+        return torch.linalg.solve(self.belief_lam, self.belief_eta)
+
+
+class GBPFactor:
+    """
+    Represents a factor in the GBP message-passing graph.
+
+    adj_keys   – ordered list of GTSAM keys, same order as the factor's keys()
+                 which matches the column blocks of information() / jacobian().
+    node_dofs  – DOF per adjacent node (all 3 for Pose2).
+    messages   – one Gaussian per adjacent node, holding the current outgoing
+                 message from this factor to that node.
+    """
+
+    def __init__(self, adj_keys: list, node_dofs: list):
+        self.adj_keys  = list(adj_keys)
+        self.node_dofs = list(node_dofs)
+        self.messages  = [Gaussian(d, type=torch.float64) for d in node_dofs]
+
+    def reset_messages(self) -> None:
+        self.messages = [Gaussian(d, type=torch.float64) for d in self.node_dofs]
+
+    def compute_messages(self, eta: torch.Tensor, lam: torch.Tensor,
+                         gbp_nodes: dict, damping: float = 0.0) -> None:
+        """
+        Compute all outgoing messages from this factor given the current
+        factor information (eta, lam) at the linearisation point.
+
+        Uses the standard GBP marginalisation formula:
+          lam_msg = lam_oo  - lam_on @ inv(lam_nn) @ lam_no
+          eta_msg = eta_o   - lam_on @ inv(lam_nn) @ eta_n
+        where 'o' = the target variable, 'n' = all other variables.
+
+        Cavity: before marginalising we incorporate the incoming messages
+        from all neighbours OTHER than the current target variable, so that
+        we avoid double-counting.
+        """
+        messages_eta, messages_lam = [], []
+
+        start_dim = 0  # column offset of the current target variable in lam/eta
+        for v in range(len(self.adj_keys)):
+            # Work with fresh copies of the full factor eta/lam
+            eta_f = eta.clone().double()
+            lam_f = lam.clone().double()
+
+            # Incorporate cavity: add in the belief minus the old message for
+            # every neighbour OTHER than the target variable v
+            col = 0
+            for var, adj_key in enumerate(self.adj_keys):
+                if var != v:
+                    nd = gbp_nodes[adj_key].DOF
+                    eta_f[col:col + nd] += (
+                        gbp_nodes[adj_key].belief_eta - self.messages[var].eta
+                    )
+                    lam_f[col:col + nd, col:col + nd] += (
+                        gbp_nodes[adj_key].belief_lam - self.messages[var].lam
+                    )
+                col += gbp_nodes[adj_key].DOF
+
+            # Partition the updated information into target (o) and rest (n) blocks
+            d = gbp_nodes[self.adj_keys[v]].DOF  # DOF of target variable
+
+            eo   = eta_f[start_dim : start_dim + d]
+            eno  = torch.cat([eta_f[:start_dim], eta_f[start_dim + d:]])
+
+            loo  = lam_f[start_dim:start_dim + d, start_dim:start_dim + d]
+            lono = torch.cat([
+                lam_f[start_dim:start_dim + d, :start_dim],
+                lam_f[start_dim:start_dim + d, start_dim + d:]
+            ], dim=1)
+            lnoo = torch.cat([
+                lam_f[:start_dim,         start_dim:start_dim + d],
+                lam_f[start_dim + d:,     start_dim:start_dim + d]
+            ], dim=0)
+            lnono = torch.cat([
+                torch.cat([lam_f[:start_dim,     :start_dim],
+                           lam_f[:start_dim,     start_dim + d:]], dim=1),
+                torch.cat([lam_f[start_dim + d:, :start_dim],
+                           lam_f[start_dim + d:, start_dim + d:]], dim=1),
+            ], dim=0)
+
+            # Marginalise out the 'n' variables
+            if lnono.numel() == 0:
+                # Unary factor: message = factor itself
+                new_lam = loo
+                new_eta = eo
+            else:
+                lnono_inv_lnoo = torch.linalg.solve(lnono, lnoo)
+                new_lam = loo  - lono @ lnono_inv_lnoo
+                new_eta = eo   - lono @ torch.linalg.solve(lnono, eno)
+
+            # Damping
+            new_eta = (1 - damping) * new_eta + damping * self.messages[v].eta
+            new_lam = (1 - damping) * new_lam + damping * self.messages[v].lam
+
+            messages_eta.append(new_eta)
+            messages_lam.append(new_lam)
+            start_dim += d
+
+        # Write messages back all at once (synchronous update)
+        for v in range(len(self.adj_keys)):
+            self.messages[v].eta = messages_eta[v]
+            self.messages[v].lam = messages_lam[v]
+
+
+# ---------------------------------------------------------------------------
+# GTSAMSolver — wraps graph + values + GBP state + step counter
 # ---------------------------------------------------------------------------
 class GTSAMSolver:
     """
     Drop-in replacement for the old FactorGraph object expected by live_server.py.
 
-    Public interface mirroring the old fg object:
-        fg.step_count          int
-        fg.var_nodes           dict  (limb_id -> metadata, for logging)
-        fg.factors             list  (for logging – len only)
+    Public interface:
+        fg.step_count                    int
+        fg.var_nodes                     dict  (for logging)
+        fg.factors                       list  (for logging)
         update_factor_graph(data, fg)
-        fg.gbp_solve(n_iters=N)  -> runs LM optimisation
-        fg.energy()             -> float graph error
-        extract_calibrations(fg) -> list of dicts
+        fg.gbp_solve(n_iters, n_inner)   runs GBP outer/inner loops
+        fg.energy()                      float graph error
+        extract_calibrations(fg)         list of calibration dicts
+
+    GBP state:
+        fg.gbp_nodes    dict[key -> GBPNode]    one per Values entry
+        fg.gbp_factors  list[GBPFactor]         parallel to graph factors
     """
+
+    # GBP hyper-parameters (can be overridden after construction)
+    N_OUTER  = 5   # re-linearisation steps per gbp_solve() call
+    N_INNER  = 10   # message-passing iterations per linearisation
+    DAMPING  = 0.0  # message damping (0 = no damping)
 
     def __init__(self):
         self.graph      = gtsam.NonlinearFactorGraph()
         self.values     = gtsam.Values()
         self.step_count = 0
 
-        # Metadata stores: limb_id (int) -> limb properties dict
-        # Used for logging and to reconstruct calib output.
-        self._limb_meta: dict[int, dict] = {}   # limb_id -> properties
-        self._calib_ids: list[int] = []          # limb_ids that have a calib node
-        self._sensor_calib_ids: list[int] = []   # limb_ids that have a sensor calib node
+        # GBP message-passing registries
+        self.gbp_nodes:   dict = {}   # key (int) -> GBPNode
+        self.gbp_factors: list = []   # list[GBPFactor], parallel to self.graph
 
-        # Mirrors for live_server.py log calls
-        self.var_nodes: dict = {}  # populated in update_factor_graph
-        self.factors:   list = []  # populated in update_factor_graph (appended per factor)
+        # Metadata for calibration extraction
+        self._calib_ids:       list = []
+        self._sensor_calib_ids: list = []
+
+        # Logging mirrors (live_server.py reads these)
+        self.var_nodes: dict = {}
+        self.factors:   list = []
 
     # ------------------------------------------------------------------
-    def gbp_solve(self, n_iters: int = 20) -> None:
-        """Run Levenberg-Marquardt optimisation and update internal values."""
+    def _register_node(self, key: int) -> None:
+        """Add a GBPNode for a newly inserted Values entry (if not already present)."""
+        if key not in self.gbp_nodes:
+            self.gbp_nodes[key] = GBPNode(key, adj_factor_indices=[])
+
+    def _register_factor(self, nl_factor_keys: list) -> int:
+        """
+        Add a GBPFactor that mirrors the NonlinearFactor just appended to self.graph.
+        Returns the index of the new GBPFactor in self.gbp_factors.
+        All nodes are Pose2 (DOF=3).
+        """
+        node_dofs = [GBPNode.DOF] * len(nl_factor_keys)
+        gbp_f = GBPFactor(adj_keys=nl_factor_keys, node_dofs=node_dofs)
+        fi = len(self.gbp_factors)
+        self.gbp_factors.append(gbp_f)
+        # Register adjacency in each node
+        for key in nl_factor_keys:
+            if key in self.gbp_nodes:
+                if fi not in self.gbp_nodes[key].adj_factor_indices:
+                    self.gbp_nodes[key].adj_factor_indices.append(fi)
+        return fi
+
+    def _add_factor(self, gtsam_factor, logging_tag) -> None:
+        """
+        Append a GTSAM factor to the graph and register the matching GBPFactor.
+        All graph additions go through this method so the two registries stay in sync.
+        """
+        self.graph.add(gtsam_factor)
+        keys = list(gtsam_factor.keys())
+        self._register_factor(keys)
+        self.factors.append((logging_tag, *keys))
+
+    # ------------------------------------------------------------------
+    def gbp_solve(self, n_iters: int = None, n_inner: int = None,
+                  damping: float = None) -> None:
+        """
+        Run GBP with re-linearisation.
+
+        n_iters : number of outer (re-linearisation + retract) steps.
+                  Defaults to self.N_OUTER.
+        n_inner : number of inner message-passing iterations per linearisation.
+                  Defaults to self.N_INNER.
+        damping : message damping coefficient [0, 1).
+                  Defaults to self.DAMPING.
+        """
         if self.values.size() == 0:
             return
-        params = gtsam.LevenbergMarquardtParams()
-        # params.setMaxIterations(n_iters)
-        optimizer = gtsam.LevenbergMarquardtOptimizer(
-            self.graph, self.values, params)
-        self.values = optimizer.optimize()
+
+        n_outer = n_iters if n_iters is not None else self.N_OUTER
+        n_in    = n_inner if n_inner is not None else self.N_INNER
+        damp    = damping if damping is not None else self.DAMPING
+
+        for _outer in range(n_outer):
+            # ---- Step 1: Linearise at current Values ----
+            gaussian_graph = self.graph.linearize(self.values)
+
+            # ---- Step 2: Reset messages and beliefs ----
+            for gf in self.gbp_factors:
+                gf.reset_messages()
+            for node in self.gbp_nodes.values():
+                node.reset_belief()
+
+            # ---- Step 3: Extract (eta, lam) from each linearised factor ----
+            factor_eta_lam = []
+            for fi in range(gaussian_graph.size()):
+                gf_lin = gaussian_graph.at(fi)
+                A, b = gf_lin.jacobian()
+                eta  = torch.from_numpy(A.T @ b).flatten().double()
+                lam  = torch.from_numpy(gf_lin.information()).double()
+                factor_eta_lam.append((eta, lam))
+
+            # ---- Step 4: Inner GBP loop on the fixed linearised graph ----
+            for _inner in range(n_in):
+                # Compute messages (all factors first – synchronous schedule)
+                for fi, gbp_f in enumerate(self.gbp_factors):
+                    eta, lam = factor_eta_lam[fi]
+                    gbp_f.compute_messages(eta, lam, self.gbp_nodes, damp)
+                # Update all node beliefs
+                for node in self.gbp_nodes.values():
+                    node.update_belief(self.gbp_factors)
+
+            # ---- Step 5: Retract using each node's converged delta ----
+            deltas = gtsam.VectorValues()
+            for key, node in self.gbp_nodes.items():
+                delta = node.get_delta().numpy()
+                deltas.insert(key, delta)
+            self.values = self.values.retract(deltas)
 
     # ------------------------------------------------------------------
     def energy(self) -> float:
-        """Return the current graph error (sum of squared whitened residuals)."""
+        """Return current graph error (sum of squared whitened residuals)."""
         if self.values.size() == 0:
             return 0.0
         return self.graph.error(self.values)
@@ -248,35 +480,42 @@ def update_factor_graph(data: dict, fg: GTSAMSolver) -> None:
             L_key,
             gtsam.Pose2(float(position_estimate[0]), float(position_estimate[1]), float(position_estimate[2]))
         )
+        fg._register_node(L_key)
 
         # Sensor pose node — initially same as limb pose (refined via factors)
         fg.values.insert(
             S_key,
             gtsam.Pose2(float(next_conn_pose[0]), float(next_conn_pose[1]), float(next_conn_pose[2]))
         )
+        fg._register_node(S_key)
 
         # Anchor: pin base limb (depth 0) to origin
         if limb["depth"] == 0:
-            fg.graph.add(gtsam.PriorFactorPose2(
-                L_key, gtsam.Pose2(0.0, 0.0, 0.0), ANCHOR_NOISE))
-            fg.factors.append(('anchor', L_key))
+            fg._add_factor(
+                gtsam.PriorFactorPose2(L_key, gtsam.Pose2(0.0, 0.0, 0.0), ANCHOR_NOISE),
+                'anchor'
+            )
 
         # Singleton calibration nodes — created only on step 0
         if step == 0:
             if limb["depth"] != 0:
                 # Joint calibration (only non-root limbs have a parent joint)
                 fg.values.insert(C_key, gtsam.Pose2(0.0, 0.0, 0.0))
-                fg.graph.add(gtsam.PriorFactorPose2(
-                    C_key, gtsam.Pose2(0.0, 0.0, 0.0), CALIB_NOISE))
-                fg.factors.append(('calib_prior', C_key))
+                fg._register_node(C_key)
+                fg._add_factor(
+                    gtsam.PriorFactorPose2(C_key, gtsam.Pose2(0.0, 0.0, 0.0), CALIB_NOISE),
+                    'calib_prior'
+                )
                 if limb_id not in fg._calib_ids:
                     fg._calib_ids.append(limb_id)
 
             # Sensor calibration (all limbs that carry a sensor)
             fg.values.insert(Z_key, gtsam.Pose2(0.0, 0.0, 0.0))
-            fg.graph.add(gtsam.PriorFactorPose2(
-                Z_key, gtsam.Pose2(0.0, 0.0, 0.0), SENSOR_CALIB_NOISE))
-            fg.factors.append(('sensor_calib_prior', Z_key))
+            fg._register_node(Z_key)
+            fg._add_factor(
+                gtsam.PriorFactorPose2(Z_key, gtsam.Pose2(0.0, 0.0, 0.0), SENSOR_CALIB_NOISE),
+                'sensor_calib_prior'
+            )
             if limb_id not in fg._sensor_calib_ids:
                 fg._sensor_calib_ids.append(limb_id)
 
@@ -317,31 +556,33 @@ def update_factor_graph(data: dict, fg: GTSAMSolver) -> None:
         Z_child  = _sensor_calib_key(child_id)    # singleton
 
         # Kinematic factor: parent limb -> joint calib -> child limb
-        fg.graph.add(make_kinematics_factor(
-            L_parent, C_child, L_child,
-            L=parent_L, theta_joint=angle_rad,
-            noise_model=KINEMATIC_NOISE,
-        ))
-        fg.factors.append(('kinematics', L_parent, C_child, L_child))
+        fg._add_factor(
+            make_kinematics_factor(L_parent, C_child, L_child,
+                                   L=parent_L, theta_joint=angle_rad,
+                                   noise_model=KINEMATIC_NOISE),
+            'kinematics'
+        )
 
         # Sensor placement factors: limb origin -> sensor calib -> sensor pose
-        fg.graph.add(make_kinematics_factor(
-            L_parent, Z_parent, S_parent,
-            L=parent_sensor_offset["x"], theta_joint=0.0,
-            noise_model=KINEMATIC_NOISE,
-        ))
-        fg.factors.append(('sensor_kin', L_parent, Z_parent, S_parent))
+        fg._add_factor(
+            make_kinematics_factor(L_parent, Z_parent, S_parent,
+                                   L=parent_sensor_offset["x"], theta_joint=0.0,
+                                   noise_model=KINEMATIC_NOISE),
+            'sensor_kin'
+        )
 
-        fg.graph.add(make_kinematics_factor(
-            L_child, Z_child, S_child,
-            L=child_sensor_offset["x"], theta_joint=0.0,
-            noise_model=KINEMATIC_NOISE,
-        ))
-        fg.factors.append(('sensor_kin', L_child, Z_child, S_child))
+        fg._add_factor(
+            make_kinematics_factor(L_child, Z_child, S_child,
+                                   L=child_sensor_offset["x"], theta_joint=0.0,
+                                   noise_model=KINEMATIC_NOISE),
+            'sensor_kin'
+        )
 
         # Distance measurement: range between sensor origins
-        fg.graph.add(gtsam.RangeFactorPose2(S_parent, S_child, dist_meas, SENSOR_NOISE))
-        fg.factors.append(('range', S_parent, S_child))
+        fg._add_factor(
+            gtsam.RangeFactorPose2(S_parent, S_child, dist_meas, SENSOR_NOISE),
+            'range'
+        )
 
     fg.step_count += 1
 
