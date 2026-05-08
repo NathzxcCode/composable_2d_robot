@@ -254,7 +254,7 @@ class GTSAMSolver:
     """
 
     # GBP hyper-parameters (can be overridden after construction)
-    N_OUTER  = 5   # re-linearisation steps per gbp_solve() call
+    N_OUTER  = 2   # re-linearisation steps per gbp_solve() call
     N_INNER  = 10   # message-passing iterations per linearisation
     DAMPING  = 0.0  # message damping (0 = no damping)
 
@@ -309,6 +309,16 @@ class GTSAMSolver:
         self.factors.append((logging_tag, *keys))
 
     # ------------------------------------------------------------------
+    def centralised_solve(self, n_iters: int = 20) -> None:
+        """Run Levenberg-Marquardt optimisation and update internal values."""
+        if self.values.size() == 0:
+            return
+        params = gtsam.LevenbergMarquardtParams()
+        # params.setMaxIterations(n_iters)
+        optimizer = gtsam.LevenbergMarquardtOptimizer(
+            self.graph, self.values, params)
+        self.values = optimizer.optimize()
+
     def gbp_solve(self, n_iters: int = None, n_inner: int = None,
                   damping: float = None) -> None:
         """
