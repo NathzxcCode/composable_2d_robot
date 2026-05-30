@@ -8,7 +8,8 @@ from utils import get_connections, plot_chain, plot_side_by_side
 # Create noise models
 KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 0.02]))
 ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 0.02]))
-GOAL_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5, 0.5, 0.5]))
+LOOSE_ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 1000]))
+GOAL_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.1, 0.1]))
 
 ## task space dynamics use cartesian velocity x_dot, y_dot. used to plan end-effector in task space
 def make_task_space_dynamics_factor(key_p1, key_v1, key_p2, key_v2, dt: float, sigma: float):
@@ -124,7 +125,8 @@ def make_joint_space_dynamics_factor(key_p1, key_v1, key_p2, key_v2, dt: float, 
         theta2 = p2.theta()
 
         # Compute 1D errors (wrapped safely if your joints spin fully)
-        err_pos = theta1 + (v1 * dt) - theta2
+        raw_error = theta1 + (v1 * dt) - theta2
+        err_pos = np.arctan2(np.sin(raw_error), np.cos(raw_error))
         err_vel = v1 - v2
         error = np.array([err_pos, err_vel])
 
@@ -186,16 +188,19 @@ def main():
         return gtsam.Symbol('o', index).key()
 
     dt = 0.1
-    sigma_endpoint = 0.05
-    sigma_joint = 0.1
-    time_horizon = 4
+    sigma_endpoint = 5 # how stiff the endpoints states are from the optimal straight line path. larger values allows them to move further from the optimal straight line
+    sigma_joint = 5 # how stiff the joints are, larger makes them looser and allows joints to bend more during movement
+    time_horizon = 10
 
     # build the robot chains for each timestep
     for k in range(time_horizon):
         # 1. Anchor only the first timesteps root to the origin
-        # if k == 0:
-        priorMean = gtsam.Pose2(0.0, 0.0, 0)  # prior at origin
-        graph.add(gtsam.PriorFactorPose2(J(1, k), priorMean, ANCHOR_NOISE))
+        if k == 0:
+            priorMean = gtsam.Pose2(0.0, 0.0, 0.0)  # prior at origin
+            graph.add(gtsam.PriorFactorPose2(J(1, k), priorMean, ANCHOR_NOISE))
+        else:
+            priorMean = gtsam.Pose2(0.0, 0.0, 0.0)  # prior at origin
+            graph.add(gtsam.PriorFactorPose2(J(1, k), priorMean, LOOSE_ANCHOR_NOISE))
 
         # 2. Define fixed kinematics factors of the robot
         graph.add(make_fixed_kinematics_factor(J(1, k), J(2, k), 20.0, np.pi/2, KINEMATIC_NOISE)) # joint connecting 1,2
@@ -224,7 +229,7 @@ def main():
     graph.add(gtsam.PriorFactorPose2(E(2, 0), priorMean, ANCHOR_NOISE))
 
     # add pior onto time horizon endpoint to pull robot to goal
-    priorMean = gtsam.Pose2(50.0, -10.0, 0)  # prior at origin
+    priorMean = gtsam.Pose2(-20.0, -20.0, 0)  # prior at origin
     graph.add(gtsam.PriorFactorPose2(E(2, time_horizon-1), priorMean, GOAL_NOISE))
 
     # optimize using Levenberg-Marquardt optimization
