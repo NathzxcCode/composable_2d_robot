@@ -1,8 +1,8 @@
 import gtsam
 from gtsam import Pose2, symbol
 import numpy as np
-import matplotlib.pyplot as plt
-from gtsam import symbolChr, symbolIndex
+
+from utils import get_connections, plot_chain, plot_side_by_side
 
 # Create noise models
 KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5, 0.5, 0.5]))
@@ -10,48 +10,6 @@ ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 1e-4]))
 CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.1, 0.1]))
 SENSOR_CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.01, 0.01, 0.01]))
 SENSOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1]))
-
-def plot_chain(values, keys_to_plot, connections, title="Kinematic Chain", arrow_len=1.0, ax=None):
-    """Plot selected poses as (x,y) points with orientation arrows, connected by lines."""
-    own_fig = ax is None
-    if own_fig:
-        _, ax = plt.subplots(figsize=(7, 7))
-    idx = {}
-    xs, ys, thetas, labels = [], [], [], []
-    for i, key in enumerate(keys_to_plot):
-        p = values.atPose2(key)
-        xs.append(p.x())
-        ys.append(p.y())
-        thetas.append(p.theta())
-        labels.append(f"{chr(symbolChr(key))}{symbolIndex(key)}")
-        idx[key] = i
-    for k1, k2 in connections:
-        if k1 in idx and k2 in idx:
-            i1, i2 = idx[k1], idx[k2]
-            ax.plot([xs[i1], xs[i2]], [ys[i1], ys[i2]], 'b-', alpha=0.4, lw=2)
-    for x, y, th in zip(xs, ys, thetas):
-        dx = arrow_len * np.cos(th)
-        dy = arrow_len * np.sin(th)
-        ax.arrow(x, y, dx, dy, head_width=0.3, head_length=0.3, fc='r', ec='r', alpha=0.7)
-    ax.scatter(xs, ys, s=60, c='blue', zorder=3)
-    for lab, x, y in zip(labels, xs, ys):
-        ax.annotate(lab, (x, y), xytext=(4, 4), textcoords="offset points", fontsize=10)
-    ax.set_aspect("equal")
-    ax.grid(True)
-    ax.set_title(title)
-    if own_fig:
-        plt.show()
-
-def get_connections(graph):
-    """Extract kinematic connections from graph factors (skipping priors/1-key factors)."""
-    connections = []
-    for i in range(graph.size()):
-        factor = graph.at(i)
-        keys = list(factor.keys())
-        if len(keys) >= 2:
-            for j in range(len(keys) - 1):
-                connections.append((keys[j], keys[j+1]))
-    return connections
 
 ## relate 2 poses via a transformation and calibration allowind for adjustment. ued to relate joints of joint and sensor
 def make_calib_kinematics_factor(key_n1, key_c, key_n2, L: float, theta_joint: float, noise_model):
@@ -177,13 +135,10 @@ def main():
     result = optimizer.optimize()
     print(result)
 
-    plot_keys = [L1_key, L2_key, E2_key]
+    plot_keys = [L1_key, CL2_key, L2_key, E2_key]
     conns = get_connections(graph)
-    _, axes = plt.subplots(1, 2, figsize=(14, 6))
-    plot_chain(initial, plot_keys, conns, "Initial Estimate", ax=axes[0])
-    plot_chain(result, plot_keys, conns, "Optimized Result", ax=axes[1])
-    plt.tight_layout()
-    plt.show()
+    plot_side_by_side(initial, result, plot_keys, conns)
+    
 
 
 if __name__=="__main__":
