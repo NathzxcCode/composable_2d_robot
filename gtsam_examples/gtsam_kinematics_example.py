@@ -47,6 +47,38 @@ def make_kinematics_factor(key_n1, key_c, key_n2, L: float, theta_joint: float, 
     keys.append(key_n2)
     return gtsam.CustomFactor(noise_model, keys, error_func)
 
+def make_kinematics_factor2(key_n1, key_n2, L: float, theta_joint: float, noise_model):
+    """
+    2-node kinematic calibration factor:
+      T_pred = N1 * Pose2(L,0,0) * Pose2(0,0,theta_joint)
+      error  = N2.localCoordinates(T_pred)   [3-vector in tangent space of N2]
+    Jacobians computed analytically via GTSAM Pose2 chain rule.
+    """
+    L_link  = gtsam.Pose2(L, 0.0, 0.0)
+    J_joint = gtsam.Pose2(0.0, 0.0, theta_joint)
+    def error_func(this, values, jacobians):
+        n1 = values.atPose2(this.keys()[0])
+        n2 = values.atPose2(this.keys()[1])
+        def z():
+            return np.zeros((3, 3), order='F')  # MUST be Fortran-order
+        # Step 1: A = N1 * L_link
+        H_A_N1 = z(); H_A_L = z()
+        A = n1.compose(L_link, H_A_N1, H_A_L)   # H_A_L unused (L is constant)
+        # Step 2: T_pred = A * J_joint
+        H_T_A = z(); H_T_J = z()
+        T_pred = A.compose(J_joint, H_T_A, H_T_J)  # H_T_J unused (J is constant)
+        # Step 3: error = N2.localCoordinates(T_pred)
+        H_e_N2 = z(); H_e_T = z()
+        error = n2.localCoordinates(T_pred, H_e_N2, H_e_T)
+        if jacobians is not None:
+            jacobians[0] = H_e_T @ H_T_A @ H_A_N1  # de/dN1
+            jacobians[1] = H_e_N2                  # de/dN2
+        return error
+    keys = gtsam.KeyVector()
+    keys.append(key_n1)
+    keys.append(key_n2)
+    return gtsam.CustomFactor(noise_model, keys, error_func)
+
 def main():
     # Create an empty nonlinear factor graph
     graph = gtsam.NonlinearFactorGraph()
