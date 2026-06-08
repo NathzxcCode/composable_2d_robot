@@ -8,8 +8,8 @@ from utils import get_connections, plot_chain, plot_side_by_side
 # Create noise models
 KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 0.02]))
 ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 0.02]))
-LOOSE_ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 10]))
-GOAL_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.06, 0.06, 1000]))
+LOOSE_ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 1000]))
+GOAL_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.1, 0.1]))
 
 ## task space dynamics use cartesian velocity x_dot, y_dot. used to plan end-effector in task space
 def make_task_space_dynamics_factor(key_p1, key_v1, key_p2, key_v2, dt: float, sigma: float):
@@ -173,7 +173,7 @@ def main():
     # 1. Define Symbols for variables
     def J(joint_id, t):
         index = (joint_id * 1000) + t
-        return gtsam.Symbol('j', index).key()
+        return gtsam.Symbol('l', index).key()
 
     def E(effector_id, t):
         index = (effector_id * 1000) + t
@@ -188,16 +188,9 @@ def main():
         return gtsam.Symbol('o', index).key()
 
     dt = 0.1
-    sigma_endpoint = 1000 # how stiff the endpoints states are from the optimal straight line path. larger values allows them to move further from the optimal straight line
-    sigma_joint = 43 # how stiff the joints are, larger makes them looser and allows joints to bend more during movement
-    time_horizon = 5
-    
-    # limb details
-    num_limbs = 3
-    limb_len = 20.0
-
-    start = np.array([40.0, 20.0, 0.0])
-    end = np.array([60.0, 0.0, 0.0])
+    sigma_endpoint = 5 # how stiff the endpoints states are from the optimal straight line path. larger values allows them to move further from the optimal straight line
+    sigma_joint = 5 # how stiff the joints are, larger makes them looser and allows joints to bend more during movement
+    time_horizon = 10
 
     # build the robot chains for each timestep
     for k in range(time_horizon):
@@ -210,35 +203,34 @@ def main():
             graph.add(gtsam.PriorFactorPose2(J(1, k), priorMean, LOOSE_ANCHOR_NOISE))
 
         # 2. Define fixed kinematics factors of the robot
-        for i in range(1,num_limbs):
-            graph.add(make_fixed_kinematics_factor(J(i, k), J(i+1, k), limb_len, 0.0, LOOSE_ANCHOR_NOISE)) # joint connecting i,i+1
-        graph.add(make_fixed_kinematics_factor(J(num_limbs, k), E(num_limbs, k), limb_len, 0.0, KINEMATIC_NOISE)) # endpoint for last limb (num_limbs)
+        graph.add(make_fixed_kinematics_factor(J(1, k), J(2, k), 20.0, np.pi/2, KINEMATIC_NOISE)) # joint connecting 1,2
+        graph.add(make_fixed_kinematics_factor(J(2, k), E(2, k), 20.0, 0.0, KINEMATIC_NOISE)) # endpoint for limb 2
 
         # 3. Add initial values
-        for i in range(1,num_limbs+1):
-            initial.insert(J(i, k), gtsam.Pose2(limb_len*(i-1), 0.0, 0.0)) # limb i at its estimated position
-        initial.insert(E(num_limbs, k), gtsam.Pose2(limb_len*num_limbs, 0.0, 0.0)) # last limb endpoint (num_limbs)
+        initial.insert(J(1, k), gtsam.Pose2(0.0, 0.0, 0.0)) # limb 1
+        initial.insert(J(2, k), gtsam.Pose2(20.0, 0.0, 0.0)) # limb 2
+        initial.insert(E(2, k), gtsam.Pose2(40.0, 0.0, 0.0)) # limb 2 endpoint
         
-        for i in range(1,num_limbs+1):
-            initial.insert(V(i, k), np.array([0.0], dtype=float)) # Joint i velocity scalar
-        initial.insert(VE(num_limbs, k), gtsam.Point2(0.0, 0.0)) # Endpoint velocity vector
+        initial.insert(V(1, k), np.array([0.0], dtype=float)) # Joint 1 velocity scalar
+        initial.insert(V(2, k), np.array([0.0], dtype=float)) # Joint 2 velocity scalar
+        initial.insert(VE(2, k), gtsam.Point2(0.0, 0.0)) # Endpoint velocity vector
 
-    # connect kinematics chains over times steps
+    # connect root chaings over times steps
     for k in range(time_horizon-1):
         # Add task space dynamics between endpoints
-        graph.add(make_task_space_dynamics_factor(E(num_limbs, k), VE(num_limbs, k), E(num_limbs, k+1), VE(num_limbs, k+1), dt, sigma_endpoint))
+        graph.add(make_task_space_dynamics_factor(E(2, k), VE(2, k), E(2, k+1), VE(2, k+1), dt, sigma_endpoint))
         
         # Add joint space 1d rotation dynamics between joints
-        for i in range(1,num_limbs+1):
-            graph.add(make_joint_space_dynamics_factor(J(i, k), V(i, k), J(i, k+1), V(i, k+1), dt, sigma_joint))
+        graph.add(make_joint_space_dynamics_factor(J(1, k), V(1, k), J(1, k+1), V(1, k+1), dt, sigma_joint))
+        graph.add(make_joint_space_dynamics_factor(J(2, k), V(2, k), J(2, k+1), V(2, k+1), dt, sigma_joint))
 
     # add pior onto initial endpoint to hold the initial position stationary
-    priorMean = gtsam.Pose2(start[0], start[1], start[2])  # prior at origin
-    graph.add(gtsam.PriorFactorPose2(E(num_limbs, 0), priorMean, ANCHOR_NOISE))
+    priorMean = gtsam.Pose2(20.0, 20.0, 0)  # prior at origin
+    graph.add(gtsam.PriorFactorPose2(E(2, 0), priorMean, ANCHOR_NOISE))
 
     # add pior onto time horizon endpoint to pull robot to goal
-    priorMean = gtsam.Pose2(end[0], end[1], end[2])  # prior at origin
-    graph.add(gtsam.PriorFactorPose2(E(num_limbs, time_horizon-1), priorMean, GOAL_NOISE))
+    priorMean = gtsam.Pose2(40.0, 00.0, 0)  # prior at origin
+    graph.add(gtsam.PriorFactorPose2(E(2, time_horizon-1), priorMean, GOAL_NOISE))
 
     # optimize using Levenberg-Marquardt optimization
     params = gtsam.LevenbergMarquardtParams()
@@ -248,9 +240,7 @@ def main():
 
     plot_keys = []
     for k in range(time_horizon):
-        for i in range(1,num_limbs+1):
-            plot_keys.append(J(i, k))
-        plot_keys.append(E(num_limbs, k))
+        plot_keys.extend([J(1, k), J(2, k), E(2, k)])
     conns = get_connections(graph)
     plot_side_by_side(initial, result, plot_keys, conns)
     

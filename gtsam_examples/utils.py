@@ -44,9 +44,9 @@ def get_connections(graph):
                 connections.append((keys[j], keys[j+1]))
     return connections
 
-def plot_side_by_side(values1, values2, keys_to_plot, connections, title1="Initial Estimate", title2="Optimized Result", arrow_len=1.0):
+def plot_side_by_side(values1, values2, keys_to_plot, connections, title1="Initial Estimate", title2="Planned Trajectory", arrow_len=1.0):
     _, axes = plt.subplots(1, 2, figsize=(14, 6))
-    plot_chain(values1, keys_to_plot, connections, "Initial Estimate", ax=axes[0])
-    plot_chain(values2, keys_to_plot, connections, "Optimized Result", ax=axes[1])
+    plot_chain(values1, keys_to_plot, connections, title1, ax=axes[0])
+    plot_chain(values2, keys_to_plot, connections, title2, ax=axes[1])
     plt.tight_layout()
     plt.show()
