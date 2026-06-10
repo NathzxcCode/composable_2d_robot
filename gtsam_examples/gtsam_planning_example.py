@@ -188,9 +188,9 @@ def main():
         return gtsam.Symbol('o', index).key()
 
     dt = 0.1
-    sigma_endpoint = 1000 # how stiff the endpoints states are from the optimal straight line path. larger values allows them to move further from the optimal straight line
-    sigma_joint = 43 # how stiff the joints are, larger makes them looser and allows joints to bend more during movement
-    time_horizon = 5
+    sigma_endpoint = 10 # how stiff the endpoints states are from the optimal straight line path. larger values allows them to move further from the optimal straight line
+    sigma_joint = 1 # how stiff the joints are, larger makes them looser and allows joints to bend more during movement
+    time_horizon = 3
     
     # limb details
     num_limbs = 3
@@ -235,6 +235,7 @@ def main():
     # add pior onto initial endpoint to hold the initial position stationary
     priorMean = gtsam.Pose2(start[0], start[1], start[2])  # prior at origin
     graph.add(gtsam.PriorFactorPose2(E(num_limbs, 0), priorMean, ANCHOR_NOISE))
+    PRIOR_INDEX = graph.size() - 1 
 
     # add pior onto time horizon endpoint to pull robot to goal
     priorMean = gtsam.Pose2(end[0], end[1], end[2])  # prior at origin
@@ -242,19 +243,38 @@ def main():
 
     # optimize using Levenberg-Marquardt optimization
     params = gtsam.LevenbergMarquardtParams()
-    optimizer = gtsam.LevenbergMarquardtOptimizer(graph, initial, params)
-    result = optimizer.optimize()
-    print(result)
 
-    plot_keys = []
-    for k in range(time_horizon):
-        for i in range(1,num_limbs+1):
-            plot_keys.append(J(i, k))
-        plot_keys.append(E(num_limbs, k))
-    conns = get_connections(graph)
-    plot_side_by_side(initial, result, plot_keys, conns)
+    steps = 10
+    for step in range(steps):
+        optimizer = gtsam.LevenbergMarquardtOptimizer(graph, initial, params)
+        result = optimizer.optimize()
+        print(result)
+
+        plot_keys = []
+        for k in range(time_horizon):
+            for i in range(1,num_limbs+1):
+                plot_keys.append(J(i, k))
+            plot_keys.append(E(num_limbs, k))
+        conns = get_connections(graph)
+        plot_side_by_side(initial, result, plot_keys, conns)
     
+        # update the values for joints,endpoint,velocities to their next future state
+        for k in range(time_horizon):
+            next_k = k + 1 if k != time_horizon - 1 else k # set all states to their next state and the end state to itself
+            
+            # Shift Poses and Velocities for all Joints
+            for i in range(1, num_limbs + 1):
+                initial.update(J(i, k), result.atPose2(J(i, next_k)))
+                initial.update(V(i, k), result.atVector(V(i, next_k)))
+                
+            # Shift Poses and Velocities for the Endpoint
+            initial.update(E(num_limbs, k), result.atPose2(E(num_limbs, next_k)))
+            initial.update(VE(num_limbs, k), result.atPoint2(VE(num_limbs, next_k)))
 
+        # Update the start prior of the endpoint at k=0
+        new_start_endpoint = result.atPose2(E(num_limbs, 1))
+        new_factor = gtsam.PriorFactorPose2(E(num_limbs, 0), new_start_endpoint, ANCHOR_NOISE)
+        graph.replace(PRIOR_INDEX, new_factor)
 
 if __name__=="__main__":
     main()
