@@ -395,11 +395,13 @@ def main():
     params = gtsam.LevenbergMarquardtParams()
 
     steps = 10
+    endpoint_paths = {"r1": [], "r2": []}
     for step in range(steps):
         optimizer = gtsam.LevenbergMarquardtOptimizer(graph, initial, params)
         result = optimizer.optimize()
         # print(result)
 
+        # get a list of keys for variables we want to plot, mainly just joints and endpoints
         plot_keys = []
         for r_index in range(len(robot_bases)):
             index_shift = r_index * num_limbs
@@ -407,8 +409,14 @@ def main():
                 for i in range(1,num_limbs+1):
                     plot_keys.append(J(i+index_shift, k))
                 plot_keys.append(E(num_limbs+index_shift, k))
+        # get a list of connections grom the factor graph
         conns = get_connections(graph)
-        plot_side_by_side(initial, result, plot_keys, conns)
+        # store endpoint positions over time to track path
+        er1 = initial.atPose2(E(num_limbs,0))
+        endpoint_paths["r1"].append((er1.x(), er1.y()))
+        er2 = initial.atPose2(E(num_limbs*2,0))
+        endpoint_paths["r2"].append((er2.x(), er2.y()))
+        plot_side_by_side(initial, result, plot_keys, conns, paths=endpoint_paths)
 
         # update the values for joints,endpoint,velocities to their next future state
         for r_index in range(len(robot_bases)):

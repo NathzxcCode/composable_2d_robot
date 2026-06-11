@@ -245,6 +245,7 @@ def main():
     params = gtsam.LevenbergMarquardtParams()
 
     steps = 10
+    endpoint_paths = {"r1": []}
     for step in range(steps):
         optimizer = gtsam.LevenbergMarquardtOptimizer(graph, initial, params)
         result = optimizer.optimize()
@@ -256,7 +257,13 @@ def main():
                 plot_keys.append(J(i, k))
             plot_keys.append(E(num_limbs, k))
         conns = get_connections(graph)
-        plot_side_by_side(initial, result, plot_keys, conns)
+        # store endpoint positions over time to track path, if loop because i dont initialise the robot to start in the position its priored on
+        if step == 0:
+            endpoint_paths["r1"].append((start[0], start[1]))
+        else:
+            er1 = initial.atPose2(E(num_limbs,0))
+            endpoint_paths["r1"].append((er1.x(), er1.y()))
+        plot_side_by_side(initial, result, plot_keys, conns, paths=endpoint_paths)
     
         # update the values for joints,endpoint,velocities to their next future state
         for k in range(time_horizon):

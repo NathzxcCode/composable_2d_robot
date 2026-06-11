@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 from gtsam import symbolChr, symbolIndex
 import numpy as np
 
-def plot_chain(values, keys_to_plot, connections, title="Kinematic Chain", arrow_len=1.0, ax=None):
+def plot_chain(values, keys_to_plot, connections, title="Kinematic Chain", arrow_len=1.0, ax=None, paths={}):
     """Plot selected poses as (x,y) points with orientation arrows, connected by lines."""
     own_fig = ax is None
     if own_fig:
@@ -27,6 +27,14 @@ def plot_chain(values, keys_to_plot, connections, title="Kinematic Chain", arrow
     ax.scatter(xs, ys, s=60, c='blue', zorder=3)
     for lab, x, y in zip(labels, xs, ys):
         ax.annotate(lab, (x, y), xytext=(4, 4), textcoords="offset points", fontsize=10)
+
+    # plot path of robot if passed in
+    for path in paths.values():
+        for i in range(len(path)-1):
+            p1 = path[i]
+            p2 = path[i+1]
+            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 'r-', alpha=0.4, lw=2)
+
     ax.set_aspect("equal")
     ax.grid(True)
     ax.set_title(title)
@@ -44,9 +52,9 @@ def get_connections(graph):
                 connections.append((keys[j], keys[j+1]))
     return connections
 
-def plot_side_by_side(values1, values2, keys_to_plot, connections, title1="Initial Estimate", title2="Planned Trajectory", arrow_len=1.0):
+def plot_side_by_side(values1, values2, keys_to_plot, connections, title1="Initial Estimate", title2="Planned Trajectory", arrow_len=1.0, paths={}):
     _, axes = plt.subplots(1, 2, figsize=(14, 6))
-    plot_chain(values1, keys_to_plot, connections, title1, ax=axes[0])
-    plot_chain(values2, keys_to_plot, connections, title2, ax=axes[1])
+    plot_chain(values1, keys_to_plot, connections, title1, ax=axes[0], paths=paths)
+    plot_chain(values2, keys_to_plot, connections, title2, ax=axes[1], paths=paths)
     plt.tight_layout()
     plt.show()
