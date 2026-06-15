@@ -188,16 +188,16 @@ def main():
         return gtsam.Symbol('o', index).key()
 
     dt = 0.1
-    sigma_endpoint = 10 # how stiff the endpoints states are from the optimal straight line path. larger values allows them to move further from the optimal straight line
-    sigma_joint = 1 # how stiff the joints are, larger makes them looser and allows joints to bend more during movement
+    sigma_endpoint = 1000 # how stiff the endpoints states are from the optimal straight line path. larger values allows them to move further from the optimal straight line
+    sigma_joint = 10 # how stiff the joints are, larger makes them looser and allows joints to bend more during movement
     time_horizon = 3
     
     # limb details
-    num_limbs = 3
-    limb_len = 20.0
+    num_limbs = 5
+    limb_len = 10.0
 
     start = np.array([40.0, 20.0, 0.0])
-    end = np.array([60.0, 0.0, 0.0])
+    end = np.array([45.0, 10.0, 0.0])
 
     # build the robot chains for each timestep
     for k in range(time_horizon):
@@ -234,7 +234,8 @@ def main():
 
     # add pior onto initial endpoint to hold the initial position stationary
     priorMean = gtsam.Pose2(start[0], start[1], start[2])  # prior at origin
-    graph.add(gtsam.PriorFactorPose2(E(num_limbs, 0), priorMean, ANCHOR_NOISE))
+    start_endpoint = initial.atPose2(E(num_limbs, 1))
+    graph.add(gtsam.PriorFactorPose2(E(num_limbs, 0), start_endpoint, ANCHOR_NOISE))
     PRIOR_INDEX = graph.size() - 1 
 
     # add pior onto time horizon endpoint to pull robot to goal
