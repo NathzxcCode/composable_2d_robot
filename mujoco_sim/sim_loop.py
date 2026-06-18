@@ -43,7 +43,7 @@ def run_simulation(
                 sensor_positions.append(data.sensor(f"sensor_pos_{i}").data.copy())
                 joint_positions.append(data.joint(f"joint_{i}").xanchor.copy())
                 joint_rotations.append(data.body(f"limb_{i}").xmat.copy().reshape(3, 3))
-                expected_connection_positions.append(np.array(limbs[i].attach_pos))
+                expected_connection_positions.append(np.array([limbs[i].length, 0.0, 0.0]))
             sensor_positions = np.array(sensor_positions)
 
             global_joint_connection_positions = []
@@ -54,7 +54,7 @@ def run_simulation(
             if controller is not None:
                 ctrl, calibrations = controller(joint_angles, joint_velocities, sensor_positions, data.time)
                 data.ctrl[:] = np.asarray(ctrl, dtype=np.float64)
-                render_covariance_ellipses(viewer, calibrations, global_joint_connection_positions, sigma=2.0)
+                render_covariance_ellipses(viewer, calibrations, global_joint_connection_positions, joint_rotations, sigma=2.0)
 
             mujoco.mj_step(model, data)
             viewer.sync()

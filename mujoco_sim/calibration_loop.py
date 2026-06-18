@@ -71,7 +71,7 @@ class FactorGraph():
             # If using standard X-Y, this is Yaw (index 2). If using X-Z, this is Pitch (index 1).
             theta_attach = limb.attach_euler[1] 
             
-            T_attach = gtsam.Pose2(x_attach, y_attach, theta_attach)
+            T_attach = gtsam.Pose2(limb.length, 0.0, 0.0)
             
             # 2. Build the Dynamic Joint Rotation Transform
             # A 2D hinge joint has 0 translation offset from its own body origin and just rotates by 'angle'

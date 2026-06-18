@@ -10,14 +10,14 @@ from calibration_loop import FactorGraph
 def main():
     limbs = [
         LimbSpec(attach_pos=[0.0,0.0,0.0]),
-        LimbSpec(),
+        LimbSpec(attach_pos=[0.35,0.0,0.0]),
         LimbSpec(),
     ]
 
     robot_data = {"limbs": limbs,
                   "last_fg_update_time": 0.0}
     fg = FactorGraph()
-    FG_UPDATE_INTERVAL = 1
+    FG_UPDATE_INTERVAL = 2
 
     limb_centres = [-np.pi/2, 0, 0]
     limb_targets = [-np.pi/2, 0, 0]

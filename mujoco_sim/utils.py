@@ -1,7 +1,7 @@
 import numpy as np
 import mujoco
 
-def render_covariance_ellipses(viewer, calibrations, global_positions, sigma: float = 2.0, visual_scale: float = 0.1):
+def render_covariance_ellipses(viewer, calibrations, global_positions, joint_rotations, sigma: float = 2.0, visual_scale: float = 0.1):
     """
     Renders 2D covariance ellipses overlayed on the MuJoCo X-Z simulation plane.
     
