@@ -6,7 +6,7 @@ import mujoco.viewer
 
 from limb_spec import LimbSpec
 from robot_builder import build_robot_xml
-from utils import render_covariance_ellipses
+from utils import render_covariance_ellipses, render_covariance_ellipses_3d
 
 Controller = Callable[[np.ndarray, np.ndarray, float], np.ndarray]
 
@@ -56,7 +56,7 @@ def run_simulation(
             if controller is not None:
                 ctrl, calibrations = controller(joint_angles, joint_velocities, sensor_positions, data.time)
                 data.ctrl[:] = np.asarray(ctrl, dtype=np.float64)
-                render_covariance_ellipses(viewer, calibrations, global_joint_connection_positions, joint_rotations, sigma=2.0)
+                render_covariance_ellipses_3d(viewer, calibrations, global_joint_connection_positions, joint_rotations, sigma=2.0)
 
             mujoco.mj_step(model, data)
             viewer.sync()

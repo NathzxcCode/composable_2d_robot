@@ -4,6 +4,7 @@ import random
 from limb_spec import LimbSpec
 from sim_loop import run_simulation
 from calibration_loop import FactorGraph
+from calibration_loop_3d import FactorGraph3D
 
 
 
@@ -16,7 +17,7 @@ def main():
 
     robot_data = {"limbs": limbs,
                   "last_fg_update_time": 0.0}
-    fg = FactorGraph()
+    fg = FactorGraph3D()
     FG_UPDATE_INTERVAL = 2
 
     limb_centres = [-np.pi/2, 0, 0]

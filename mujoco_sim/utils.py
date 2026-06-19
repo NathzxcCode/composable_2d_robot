@@ -1,6 +1,76 @@
 import numpy as np
 import mujoco
 
+
+def render_covariance_ellipses_3d(viewer, calibrations, global_positions, joint_rotations, sigma: float = 2.0, visual_scale: float = 0.1):
+    """
+    Renders 3D covariance ellipsoids in the MuJoCo scene.
+
+    The calibration mean [tx, ty, tz] and covariance cov_xyz (3x3) are expressed
+    in the PARENT limb's local frame.  Before rendering we rotate them into the
+    MuJoCo world frame using the parent limb's full 3x3 rotation matrix.
+
+    Parameters:
+        viewer:           Passive viewer handle from launch_passive().
+        calibrations:     List of dicts from FactorGraph3D.extract_calibrations().
+                          calibrations[k] is CJ for the joint between limb k and k+1.
+                          Each dict has keys "mean" ([tx,ty,tz]) and "cov_xyz" (3x3).
+        global_positions: List of length (num_limbs-1).  global_positions[k] is the
+                          expected (nominal) world 3D position of the k-th connection.
+        joint_rotations:  List of length num_limbs.  joint_rotations[k] is the 3x3
+                          world rotation matrix of limb k's body frame.
+        sigma:            Confidence-interval scale (e.g. 2 ≈ 95%).
+        visual_scale:     Additional multiplier for visual size.
+    """
+    viewer.user_scn.ngeom = 0
+    geom_idx = 0
+
+    for i, calib in enumerate(calibrations):
+        mean_local = np.array(calib["mean"],    dtype=float)  # [tx, ty, tz] local
+        cov_local  = np.array(calib["cov_xyz"], dtype=float)  # 3x3 local
+
+        # Parent limb's full 3x3 world rotation matrix
+        R = joint_rotations[i]   # maps local -> world
+
+        # Rotate mean and covariance into world frame
+        mean_world = R @ mean_local                 # shape (3,)
+        cov_world  = R @ cov_local @ R.T            # shape (3,3)
+
+        # Eigendecomposition of the 3x3 world-frame covariance
+        try:
+            eigenvalues, eigenvectors = np.linalg.eigh(cov_world)
+        except np.linalg.LinAlgError:
+            continue
+
+        # Clamp negative eigenvalues (numerical noise)
+        eigenvalues = np.maximum(eigenvalues, 0.0)
+
+        # Semi-axis lengths of the ellipsoid along each principal direction
+        half_axes = sigma * np.sqrt(eigenvalues) * visual_scale  # shape (3,)
+
+        # eigenvectors[:,k] is the k-th principal axis in world coordinates.
+        # Build a 3x3 rotation matrix whose columns are the principal axes.
+        R_ellipse = eigenvectors.copy()   # already column-major: col k = axis k
+        if np.linalg.det(R_ellipse) < 0:
+            R_ellipse[:, 0] = -R_ellipse[:, 0]   # flip one axis to ensure proper rotation
+
+        # World position: nominal connection point + rotated mean offset
+        nominal_pos = global_positions[i]          # shape (3,): [X, Y, Z] world
+        pos = nominal_pos + mean_world
+
+        mujoco.mjv_initGeom(
+            viewer.user_scn.geoms[geom_idx],
+            type=mujoco.mjtGeom.mjGEOM_ELLIPSOID,
+            size=half_axes.tolist(),               # [a, b, c] semi-axes
+            pos=pos.tolist(),
+            mat=R_ellipse.flatten().tolist(),
+            rgba=[0.2, 0.8, 0.2, 0.35],
+        )
+        geom_idx += 1
+
+    viewer.user_scn.ngeom = geom_idx
+
+
 def render_covariance_ellipses(viewer, calibrations, global_positions, joint_rotations, sigma: float = 2.0, visual_scale: float = 0.1):
     """
     Renders 2D covariance ellipses overlayed on the MuJoCo X-Z simulation plane.
