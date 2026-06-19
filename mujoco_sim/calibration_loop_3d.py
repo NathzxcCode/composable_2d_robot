@@ -2,6 +2,7 @@ import gtsam
 import numpy as np
 import sys
 import os
+import time
 
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(root_path)
@@ -57,9 +58,9 @@ class FactorGraph3D():
         Ingest one observation into the 3-D factor graph.
 
         data dict keys:
-            "limbs"            – list[LimbSpec]
-            "joint_angles"     – list[float], one per limb (radians)
-            "sensor_distances" – list[float], len = num_limbs - 1
+            "limbs"            - list[LimbSpec]
+            "joint_angles"     - list[float], one per limb (radians)
+            "sensor_distances" - list[float], len = num_limbs - 1
                                  sensor_distances[k] = dist(sensor_k, sensor_k+1)
         """
         if self.t > 100:
@@ -80,7 +81,7 @@ class FactorGraph3D():
             # ----------------------------------------------------------
             # 1. Build the Static Attachment Transform (Parent Pivot -> Child Pivot)
             #
-            # For limb 0: its pivot IS the base origin – T_attach = identity.
+            # For limb 0: its pivot IS the base origin - T_attach = identity.
             # For limb i>0: walk the NOMINAL (assumed) parent length along the
             # parent's local X-axis to reach the child pivot.
             # We use parent_limb.length (nominal model assumption), NOT
@@ -207,11 +208,13 @@ class FactorGraph3D():
     def centralised_solve(self) -> None:
         if self.values.size() == 0:
             return
+        start = time.time()
         optimizer = gtsam.LevenbergMarquardtOptimizer(
             self.graph, self.values, self.params
         )
         self.values = optimizer.optimize()
 
+        print("calib time: ", time.time()-start)
         # Debug: print calibration poses after each solve
         for joint_id in range(1, self.num_limbs):
             p = self.values.atPose3(CJ(joint_id))
