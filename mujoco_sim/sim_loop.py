@@ -17,7 +17,7 @@ def run_simulation(
     time_limit: float = float("inf"),
     real_time: bool = True,
     base_pos: tuple = (0, 0, 0),
-    kp: float = 30.0,
+    kp: float = 20.0,
 ):
     xml = build_robot_xml(limbs, base_pos=base_pos, kp=kp)
     model = mujoco.MjModel.from_xml_string(xml)
@@ -48,7 +48,9 @@ def run_simulation(
 
             global_joint_connection_positions = []
             for i in range(1, len(limbs)):
-                global_joint_connection_positions.append(joint_positions[i-1] + (joint_rotations[i-1] @ expected_connection_positions[i]))
+                # Nominal connection point = parent joint anchor + parent rotation * parent tip offset
+                # expected_connection_positions[i-1] is the nominal tip of limb i-1 in its local frame
+                global_joint_connection_positions.append(joint_positions[i-1] + (joint_rotations[i-1] @ expected_connection_positions[i-1]))
             
 
             if controller is not None:

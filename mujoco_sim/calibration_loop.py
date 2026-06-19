@@ -9,7 +9,7 @@ sys.path.append(root_path)
 from gtsam_examples.gtsam_factors import make_calib_kinematics_factor, make_fixed_kinematics_factor
 
 KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5,  0.5,  1e-4]))
-ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 1e-6]))
+ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 1.0]))
 CALIB_NOISE        = gtsam.noiseModel.Diagonal.Sigmas(np.array([10.0, 10.0, 0.001]))
 SENSOR_CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.1, 0.001]))
 SENSOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5 ]))
@@ -56,29 +56,29 @@ class FactorGraph():
         # initialise limb poses
         # initialise sensor poses per limb
         # connect sensors to limbs
+        # J(i) represents the PIVOT FRAME of joint i in world coordinates.
+        # J(0) is at the base pivot = origin, so we start the chain there.
         current_parent_pose = gtsam.Pose2()
         for i, limb in enumerate(limbs):
             angle = joint_angles[i]
             
-            # 1. Build the Static Attachment Transform (Parent Frame -> Unrotated Child Frame)
-            # Mapping your 2D plane: 
-            #   - Use limb.attach_pos[1] if your 2D plane is X-Y
-            #   - Use limb.attach_pos[2] if your 2D plane is X-Z (MuJoCo default for Y-axis hinges)
-            x_attach = limb.attach_pos[0]
-            y_attach = limb.attach_pos[2]  # Change to [2] if mapping MuJoCo's Z-axis to GTSAM's Y-axis
-            
-            # In 2D, rotation is around the out-of-plane axis. 
-            # If using standard X-Y, this is Yaw (index 2). If using X-Z, this is Pitch (index 1).
-            theta_attach = limb.attach_euler[1] 
-            
-            T_attach = gtsam.Pose2(limb.length, 0.0, 0.0)
+            # 1. Build the Static Attachment Transform (Parent Pivot -> Child Pivot)
+            # For limb 0: its pivot IS the base origin, so T_attach = identity.
+            # For limb i>0: walk the NOMINAL (assumed) parent length to reach the child pivot.
+            # We use limb.length (nominal model assumption), NOT limb.attach_pos (true value).
+            # The discrepancy between nominal and true is what CJ(i) is calibrated to absorb.
+            # X-Z plane mapping: MuJoCo X -> GTSAM X, MuJoCo Z -> GTSAM Y.
+            if i == 0:
+                T_attach = gtsam.Pose2(0.0, 0.0, 0.0)
+            else:
+                parent_limb = limbs[i - 1]
+                T_attach = gtsam.Pose2(parent_limb.length, 0.0, 0.0)
             
             # 2. Build the Dynamic Joint Rotation Transform
-            # A 2D hinge joint has 0 translation offset from its own body origin and just rotates by 'angle'
             T_joint = gtsam.Pose2(0.0, 0.0, angle)
             
-            # 3. Calculate Global Pose of Limb i via Matrix Composition
-            # Global_Limb = Global_Parent * T_Attachment * T_Joint_Rotation
+            # 3. Calculate Global Pivot Pose of Joint i
+            # Global_J(i) = Global_J(i-1) * T_Attach_Nominal * T_Joint_Rotation
             global_limb_pose = current_parent_pose.compose(T_attach).compose(T_joint)
             
             # 4. Calculate Global Pose of Sensor i
@@ -107,14 +107,17 @@ class FactorGraph():
             # setup connection factors between limbs
             # add anchor prior on base limb
             if i == 0:
-                anchor_pose = gtsam.Pose2(0.0, 0.0, angle)
-                self.graph.add(gtsam.PriorFactorPose2(J(i, self.t), anchor_pose, ANCHOR_NOISE))
+                # Pin the base pivot to the world origin (0,0). Theta is left free
+                # (large sigma) so the measured joint angle can be expressed naturally.
+                self.graph.add(gtsam.PriorFactorPose2(J(i, self.t), gtsam.Pose2(0.0, 0.0, 0.0), ANCHOR_NOISE))
             # add kinematics between joint i-1 and joint i
             else:
                 if not self.values.exists(CJ(i)):
                     self.values.insert(CJ(i), gtsam.Pose2(0.0, 0.0, 0.0))
                     self.graph.add(gtsam.PriorFactorPose2(CJ(i), gtsam.Pose2(0.0, 0.0, 0.0), CALIB_NOISE))
-                self.graph.add(make_calib_kinematics_factor(J(i-1, self.t), CJ(i), J(i, self.t), limb.attach_pos[0], angle, KINEMATIC_NOISE))
+                # Use the NOMINAL (assumed) parent limb length, not the true attach_pos.
+                # The calibration CJ(i) will absorb the difference.
+                self.graph.add(make_calib_kinematics_factor(J(i-1, self.t), CJ(i), J(i, self.t), limbs[i-1].length, angle, KINEMATIC_NOISE))
                 self.graph.add(gtsam.RangeFactorPose2(S(i-1, self.t), S(i, self.t), sensor_distances[i-1], SENSOR_NOISE))
 
         self.t += 1

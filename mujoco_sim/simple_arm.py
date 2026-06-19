@@ -10,8 +10,8 @@ from calibration_loop import FactorGraph
 def main():
     limbs = [
         LimbSpec(attach_pos=[0.0,0.0,0.0]),
-        LimbSpec(attach_pos=[0.35,0.0,0.0]),
-        LimbSpec(),
+        LimbSpec(attach_pos=[0.35,0.0,0.0], length=0.3),
+        LimbSpec(attach_pos=[0.3,0.0,0.0]),
     ]
 
     robot_data = {"limbs": limbs,
