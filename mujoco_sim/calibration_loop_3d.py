@@ -51,6 +51,7 @@ class FactorGraph3D():
         self.params = gtsam.LevenbergMarquardtParams()
         self.t         = 0
         self.num_limbs = 0
+        self._joint_axes: dict = {}   # joint_id -> np.ndarray shape (3,)
 
     # ------------------------------------------------------------------
     def update_factor_graph(self, data) -> None:
@@ -174,6 +175,14 @@ class FactorGraph3D():
                     )
                 )
             else:
+                # Record the joint rotation axis for this connection (normalised).
+                # Used later in extract_calibrations to zero the unobservable
+                # covariance component along the rotation axis.
+                ax = np.array(limb.joint_axis, dtype=float)
+                norm = np.linalg.norm(ax)
+                if norm > 0:
+                    self._joint_axes[i] = ax / norm
+
                 # Joint calibration singleton (first timestep only)
                 if not self.values.exists(CJ(i)):
                     self.values.insert(CJ(i), gtsam.Pose3())
@@ -257,16 +266,26 @@ class FactorGraph3D():
                     cov66  = marginals.marginalCovariance(c_key)   # 6x6
                     # Translation block is indices [3:6, 3:6] in GTSAM's
                     # Pose3 tangent ordering [rot(3), trans(3)]
-                    cov_xyz = cov66[3:6, 3:6].tolist()
+                    cov_xyz = cov66[3:6, 3:6]
                 else:
-                    cov_xyz = [[1000.0, 0.0, 0.0],
-                               [0.0, 1000.0, 0.0],
-                               [0.0, 0.0, 1000.0]]
+                    cov_xyz = np.diag([1000.0, 1000.0, 1000.0])
+
+                # Zero the covariance component along the joint rotation axis.
+                # That direction is unobservable from scalar distance measurements
+                # when the chain only moves in the perpendicular plane, so its
+                # marginal variance stays at the prior and would render as a giant
+                # spike occluding the view.  We suppress it so only the observable
+                # uncertainty is displayed.
+                axis = self._joint_axes.get(joint_id)
+                if axis is not None:
+                    # Project out the axis component: C_obs = (I - a*a^T) C (I - a*a^T)
+                    P = np.eye(3) - np.outer(axis, axis)
+                    cov_xyz = P @ cov_xyz @ P
 
                 results.append({
                     "id":      label,
                     "mean":    mean_t,
-                    "cov_xyz": cov_xyz,
+                    "cov_xyz": cov_xyz.tolist(),
                 })
 
             except Exception:

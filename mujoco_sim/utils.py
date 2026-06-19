@@ -42,11 +42,16 @@ def render_covariance_ellipses_3d(viewer, calibrations, global_positions, joint_
         except np.linalg.LinAlgError:
             continue
 
-        # Clamp negative eigenvalues (numerical noise)
+        # Clamp negative eigenvalues (numerical noise).
+        # For axes where the covariance was projected to zero (unobservable
+        # joint-axis direction), eigenvalue ≈ 0 → half-axis set to a thin
+        # fixed thickness so the ellipsoid stays a flat disc, not a point.
+        MIN_HALF_AXIS = 0.002   # 2 mm — paper-thin visually
         eigenvalues = np.maximum(eigenvalues, 0.0)
-
-        # Semi-axis lengths of the ellipsoid along each principal direction
-        half_axes = sigma * np.sqrt(eigenvalues) * visual_scale  # shape (3,)
+        half_axes = np.maximum(
+            sigma * np.sqrt(eigenvalues) * visual_scale,
+            MIN_HALF_AXIS,
+        )
 
         # eigenvectors[:,k] is the k-th principal axis in world coordinates.
         # Build a 3x3 rotation matrix whose columns are the principal axes.

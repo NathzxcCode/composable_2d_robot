@@ -2,7 +2,11 @@ from typing import List, Tuple
 import math
 from limb_spec import LimbSpec
 
-DEFAULT_KP = 100.0
+DEFAULT_KP       = 30.0
+# Peak torque limit per joint (N·m).  Caps maximum joint speed to roughly
+# F_MAX / joint_damping ≈ 2.0 / 0.4 = 5 rad/s, matching a small servo arm
+# (e.g. Dynamixel XM430 stall torque: 4.1 N·m, max speed: ~6 rad/s).
+DEFAULT_F_MAX    = 1.0
 
 def _build_limb_xml(
     i: int, 
@@ -60,9 +64,13 @@ def build_robot_xml(
     limbs: List[LimbSpec],
     base_pos: Tuple[float, float, float] = (0, 0.5, 0),
     kp: float = DEFAULT_KP,
+    f_max: float = DEFAULT_F_MAX,
 ) -> str:
+    # forcelimited + forcerange cap the maximum joint torque, which in turn
+    # limits peak joint speed to roughly f_max / joint_damping.
     actuators = "\n".join(
-        f'    <position name="act_joint_{i}" joint="joint_{i}" kp="{kp}"/>'
+        f'    <position name="act_joint_{i}" joint="joint_{i}" kp="{kp}" '
+        f'forcelimited="true" forcerange="-{f_max} {f_max}"/>'
         for i in range(len(limbs))
     )
     
