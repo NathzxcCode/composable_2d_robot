@@ -15,8 +15,8 @@ from gbp_utilities import Gaussian
 KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5,  0.5,  1e-4]))
 ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 1e-6]))
 CALIB_NOISE        = gtsam.noiseModel.Diagonal.Sigmas(np.array([10.0, 10.0, 0.001]))
-SENSOR_CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.1, 0.001]))
-SENSOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5 ]))
+SENSOR_CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1.0, 1.0, 0.001]))
+SENSOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([1.0 ]))
 
 
 # ---------------------------------------------------------------------------
@@ -661,7 +661,7 @@ def extract_calibrations(fg: GTSAMSolver) -> list:
 if __name__ == "__main__":
     fg = create_gbp_solver()
 
-    with open("pose_data.json", "r") as f:
+    with open("pose_data_2.json", "r") as f:
         poses = json.load(f)
 
     for pose in poses:
@@ -669,7 +669,7 @@ if __name__ == "__main__":
 
     print(f"Graph built: {fg.values.size()} variables, {len(fg.factors)} factors")
 
-    fg.gbp_solve(n_iters=100)
+    fg.centralised_solve()
 
     print("Optimisation complete")
     print(f"Energy: {fg.energy():.4f}")

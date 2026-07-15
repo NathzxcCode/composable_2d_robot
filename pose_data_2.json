@@ -1,0 +1,137 @@
+[
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -18, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 68, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 13.17368089}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -79, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 97, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 11.86488298}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -40, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 105, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 10.89413921}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": 4, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 46, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 13.62291716}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -90, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 119, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 10.91280035}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -48, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 84, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 12.04144707}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": 1, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 67, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 13.03014631}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -67, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 114, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 10.78208617}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -52, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 71, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 12.78024284}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -11, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 94, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 11.85737829}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -29, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 81, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 12.63272123}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -71, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 88, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 12.30063396}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -32, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 107, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 10.82575912}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -1, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 49, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 13.74310869}
+    ]
+  },
+  {
+    "limbs": [
+      {"id": 0, "depth": 0, "local_angle": -88, "limb_length": 17.5, "sensor_offset": {"x": 8.7, "y": 0}},
+      {"id": 1, "depth": 1, "local_angle": 113, "limb_length": 17.5, "sensor_offset": {"x": 8.8, "y": 0}}
+    ],
+    "connections": [
+      {"parent_id": 0, "child_id": 1, "depth": 1, "distance": 11.33591989}
+    ]
+  }
+]
