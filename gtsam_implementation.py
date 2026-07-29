@@ -661,7 +661,7 @@ def extract_calibrations(fg: GTSAMSolver) -> list:
 if __name__ == "__main__":
     fg = create_gbp_solver()
 
-    with open("pose_data_2.json", "r") as f:
+    with open("pose_data_example.json", "r") as f:
         poses = json.load(f)
 
     for pose in poses:
