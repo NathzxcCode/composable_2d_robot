@@ -84,7 +84,7 @@ class FactorGraph():
             
             # 4. Calculate Global Pose of Sensor i
             x_sensor = limb.sensor_pos[0]
-            y_sensor = limb.sensor_pos[2]  # Change to [2] if mapping MuJoCo's Z-axis to GTSAM's Y-axis
+            y_sensor = limb.sensor_pos[1]  # X-Y plane: GTSAM Y maps to MuJoCo world Y
             theta_sensor = limb.sensor_euler[2]
             
             T_sensor_offset = gtsam.Pose2(x_sensor, y_sensor, theta_sensor)
