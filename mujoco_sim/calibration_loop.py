@@ -7,6 +7,7 @@ import os
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(root_path)
 from gtsam_examples.gtsam_factors import make_calib_kinematics_factor, make_fixed_kinematics_factor
+from gtsam_gbp import GBPOptimizer, GBPParams
 
 KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5,  0.5,  1e-4]))
 ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 1.0]))
@@ -128,6 +129,12 @@ class FactorGraph():
         optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph, self.values, self.params)
         self.values = optimizer.optimize()
         print(self.values.atPose2(CJ(1)), self.values.atPose2(CJ(2)))
+
+    def gbp_solve(self, n_outer=5, n_inner=10, damping=0.0):
+        if self.values.size() == 0:
+            return
+        params = GBPParams(n_outer=n_outer, n_inner=n_inner, damping=damping, dof=3)
+        self.values = GBPOptimizer(self.graph, self.values, params).optimize()
 
 
     def extract_calibrations(self) -> list:

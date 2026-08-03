@@ -7,6 +7,7 @@ import time
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(root_path)
 from gtsam_examples.gtsam_factors import make_calib_kinematics_factor_3d
+from gtsam_gbp import GBPOptimizer, GBPParams
 
 # ---------------------------------------------------------------------------
 # Noise models  (6-DOF: [rot_x, rot_y, rot_z, tx, ty, tz])
@@ -231,6 +232,12 @@ class FactorGraph3D():
                 f"CJ({joint_id}): t=({p.x():.4f}, {p.y():.4f}, {p.z():.4f})  "
                 f"R={np.round(p.rotation().matrix().flatten()[:3], 3)}"
             )
+
+    def gbp_solve(self, n_outer=5, n_inner=10, damping=0.0) -> None:
+        if self.values.size() == 0:
+            return
+        params = GBPParams(n_outer=n_outer, n_inner=n_inner, damping=damping, dof=6)
+        self.values = GBPOptimizer(self.graph, self.values, params).optimize()
 
     # ------------------------------------------------------------------
     def extract_calibrations(self) -> list:

@@ -32,7 +32,7 @@ def main():
             attach_euler=[0.0, -pi/2, 0.0],
             joint_axis=[1.0, 0.0, 0.0],
             joint_damping=0.4,
-            sensor_pos=[0.06, 0.01, 0.0],
+            sensor_pos=[0.06, 0.0, 0.0],
             joint_centre=0.0,
             joint_range=pi / 2,
         ),
@@ -42,17 +42,17 @@ def main():
             attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 1.0, 0.0],
             joint_damping=0.4,
-            sensor_pos=[0.12, 0.01, 0.0],
+            sensor_pos=[0.09, 0.0, 0.0],
             joint_centre=-pi / 4,
             joint_range=pi / 4,
         ),
         LimbSpec(
             length=0.15, radius=0.015, density=500.0,
-            attach_pos=[0.13, 0.0, 0.0],
+            attach_pos=[0.10, 0.0, 0.0],
             attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 1.0, 0.0],
             joint_damping=0.4,
-            sensor_pos=[0.12, 0.01, 0.0],
+            sensor_pos=[0.12, 0.0, 0.0],
             joint_centre=pi / 4,
             joint_range=pi / 4,
         ),
@@ -62,7 +62,7 @@ def main():
             attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 1.0, 0.0],
             joint_damping=0.3,
-            sensor_pos=[0.05, 0.01, 0.0],
+            sensor_pos=[0.05, 0.0, 0.0],
             joint_centre=0.0,
             joint_range=pi / 4,
         ),
@@ -72,7 +72,7 @@ def main():
             attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 0.0, 1.0],
             joint_damping=0.2,
-            sensor_pos=[0.03, 0.01, 0.0],
+            sensor_pos=[0.03, 0.0, 0.0],
             joint_centre=0.0,
             joint_range=pi / 2,
         ),
@@ -101,7 +101,8 @@ def main():
 
         if (t - robot_data["last_fg_update_time"]) >= FG_UPDATE_INTERVAL:
             fg.update_factor_graph(robot_data)
-            fg.centralised_solve()
+            # fg.centralised_solve()
+            fg.gbp_solve(n_outer=8, n_inner=8)
             robot_data["last_fg_update_time"] = t
         calibrations = fg.extract_calibrations()
 

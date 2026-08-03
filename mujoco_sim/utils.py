@@ -27,6 +27,7 @@ def render_covariance_ellipses_3d(viewer, calibrations, global_positions, joint_
 
     for i, calib in enumerate(calibrations):
         mean_local = np.array(calib["mean"],    dtype=float)  # [tx, ty, tz] local
+        print("limb: ", i, "mean: ", mean_local)
         cov_local  = np.array(calib["cov_xyz"], dtype=float)  # 3x3 local
 
         # Parent limb's full 3x3 world rotation matrix
