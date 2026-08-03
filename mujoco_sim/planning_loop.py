@@ -11,6 +11,7 @@ KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 0.02
 ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 0.02]))
 LOOSE_ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 10.0]))
 GOAL_NOISE         = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.06, 0.06, 1000.0]))
+GOAL_NOISE_ANGLE   = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.06, 0.06, 0.06]))
 
 
 def _J(i, t):  return gtsam.Symbol('j', i * 1000 + t).key()
