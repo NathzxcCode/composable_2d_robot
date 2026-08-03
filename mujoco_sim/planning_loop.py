@@ -6,12 +6,16 @@ import os
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(root_path)
 from gtsam_examples.gtsam_factors import make_fixed_kinematics_factor
+from gtsam_gbp import GBPOptimizer, GBPParams
 
-KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 0.02]))
-ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 0.02]))
-LOOSE_ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 10.0]))
+# Position sigma of 0.05 m keeps the arm chain well-connected while keeping the
+# information within ~3 orders of magnitude of the dynamics factors (~1), which
+# is required for GBP message passing to stay numerically stable.
+# (1e-4 sigmas give 1e8 information, causing 9-OOM spread that breaks GBP.)
+KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05, 0.05, 0.02]))
+ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05, 0.05, 0.02]))
+LOOSE_ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05, 0.05, 10.0]))
 GOAL_NOISE         = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.06, 0.06, 1000.0]))
-GOAL_NOISE_ANGLE   = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.06, 0.06, 0.06]))
 
 
 def _J(i, t):  return gtsam.Symbol('j', i * 1000 + t).key()
@@ -111,12 +115,13 @@ class PlanningGraph:
         self.time_horizon = time_horizon
         self.dt           = dt
 
-        self.graph   = gtsam.NonlinearFactorGraph()
-        self.initial = gtsam.Values()
-        self.params  = gtsam.LevenbergMarquardtParams()
+        self.graph    = gtsam.NonlinearFactorGraph()
+        self.initial  = gtsam.Values()
+        self.params   = gtsam.LevenbergMarquardtParams()
+        self._dof_map = {}  # key -> tangent-space DOF, used by GBPOptimizer
 
-        self._k0_root_idx   = None   # graph index of PriorFactor on J(1, 0)
-        self._k0_kin_indices = []    # graph indices of inter-joint kinematics at k=0
+        self._k0_root_idx   = None
+        self._k0_kin_indices = []
 
         # Cumulative X positions for straight-arm initialisation
         x_positions = [0.0]
@@ -145,9 +150,13 @@ class PlanningGraph:
             for i in range(1, self.num_limbs + 1):
                 self.initial.insert(_J(i, k), gtsam.Pose2(x_positions[i - 1], 0.0, 0.0))
                 self.initial.insert(_V(i, k), np.array([0.0]))
+                self._dof_map[_J(i, k)] = 3
+                self._dof_map[_V(i, k)] = 1
             self.initial.insert(_E(self.num_limbs, k),
                                 gtsam.Pose2(x_positions[self.num_limbs], 0.0, 0.0))
             self.initial.insert(_VE(self.num_limbs, k), np.array([0.0, 0.0]))
+            self._dof_map[_E(self.num_limbs, k)] = 3
+            self._dof_map[_VE(self.num_limbs, k)] = 2
 
         # --- Connect chains across timesteps via dynamics ---
         for k in range(time_horizon - 1):
@@ -166,24 +175,17 @@ class PlanningGraph:
             gtsam.Pose2(goal_xy[0], goal_xy[1], 0.0),
             GOAL_NOISE))
 
-    def centralised_solve(self, current_qpos: np.ndarray,
-                          joint_poses: np.ndarray) -> np.ndarray:
-        """
-        current_qpos : (num_limbs,) relative joint angles from encoders.
-        joint_poses  : (num_limbs, 3) ground-truth [x, y, theta] per joint.
-        """
-        # 1. Update k=0 joint variable values from ground-truth poses
+    def _pre_solve(self, current_qpos: np.ndarray, joint_poses: np.ndarray) -> None:
+        """Update k=0 variable values and replace k=0 factors with measured state."""
         for i, xyt in enumerate(joint_poses):
             self.initial.update(_J(i + 1, 0),
                                 gtsam.Pose2(float(xyt[0]), float(xyt[1]), float(xyt[2])))
 
-        # Compute endpoint from the last joint pose
         last = joint_poses[-1]
         last_pose = gtsam.Pose2(float(last[0]), float(last[1]), float(last[2]))
         end_pose  = last_pose.compose(gtsam.Pose2(self.limb_lengths[-1], 0.0, 0.0))
         self.initial.update(_E(self.num_limbs, 0), end_pose)
 
-        # 2. Replace root anchor with the actual measured J(1,0) pose (includes qpos[0])
         self.graph.replace(self._k0_root_idx,
             gtsam.PriorFactorPose2(
                 _J(1, 0),
@@ -192,8 +194,6 @@ class PlanningGraph:
                             float(joint_poses[0][2])),
                 ANCHOR_NOISE))
 
-        # 3. Replace k=0 inter-joint kinematics with measured relative angles.
-        #    Factor J(i,0)->J(i+1,0) (1-indexed i) uses qpos[i] (0-indexed).
         for graph_idx, i in zip(self._k0_kin_indices, range(1, self.num_limbs)):
             self.graph.replace(graph_idx,
                 make_fixed_kinematics_factor(
@@ -202,10 +202,8 @@ class PlanningGraph:
                     float(current_qpos[i]),
                     KINEMATIC_NOISE))
 
-        result = gtsam.LevenbergMarquardtOptimizer(
-            self.graph, self.initial, self.params).optimize()
-
-        # Shift all values one timestep forward
+    def _post_solve(self, result: gtsam.Values) -> np.ndarray:
+        """Shift the receding window forward and extract relative joint angles at k=1."""
         for k in range(self.time_horizon):
             next_k = k + 1 if k < self.time_horizon - 1 else k
             for i in range(1, self.num_limbs + 1):
@@ -216,10 +214,33 @@ class PlanningGraph:
             self.initial.update(_VE(self.num_limbs, k),
                                 result.atVector(_VE(self.num_limbs, next_k)))
 
-        # Extract planned relative joint angles at k=1
         thetas = [result.atPose2(_J(i + 1, 1)).theta() for i in range(self.num_limbs)]
         ctrl = np.zeros(self.num_limbs)
         ctrl[0] = thetas[0]
         for i in range(1, self.num_limbs):
             ctrl[i] = thetas[i] - thetas[i - 1]
         return ctrl
+
+    def centralised_solve(self, current_qpos: np.ndarray,
+                          joint_poses: np.ndarray) -> np.ndarray:
+        """
+        current_qpos : (num_limbs,) relative joint angles from encoders.
+        joint_poses  : (num_limbs, 3) ground-truth [x, y, theta] per joint.
+        """
+        self._pre_solve(current_qpos, joint_poses)
+        result = gtsam.LevenbergMarquardtOptimizer(
+            self.graph, self.initial, self.params).optimize()
+        return self._post_solve(result)
+
+    def gbp_solve(self, current_qpos: np.ndarray,
+                  joint_poses: np.ndarray,
+                  n_outer: int = 5, n_inner: int = 10,
+                  damping: float = 0.0) -> np.ndarray:
+        """GBP variant — drop-in replacement for centralised_solve."""
+        self._pre_solve(current_qpos, joint_poses)
+        result = GBPOptimizer(
+            self.graph, self.initial,
+            GBPParams(n_outer=n_outer, n_inner=n_inner, damping=damping),
+            dof_map=self._dof_map,
+        ).optimize()
+        return self._post_solve(result)

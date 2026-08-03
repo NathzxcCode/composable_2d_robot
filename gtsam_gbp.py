@@ -5,11 +5,11 @@ from gbp_utilities import Gaussian
 
 class GBPParams:
     def __init__(self, n_outer: int = 5, n_inner: int = 10,
-                 damping: float = 0.0, dof: int = 3):
+                 damping: float = 0.0, dof: int = None):
         self.n_outer = n_outer
         self.n_inner = n_inner
         self.damping = damping
-        self.dof     = dof
+        self.dof     = dof  # None = auto-detect per variable from Values
 
 
 class GBPNode:
@@ -110,30 +110,38 @@ class GBPOptimizer:
     GBP solver with the same call interface as gtsam.LevenbergMarquardtOptimizer.
 
     Usage:
-        params = GBPParams(n_outer=5, n_inner=10, damping=0.0, dof=3)
-        result = GBPOptimizer(graph, values, params).optimize()
+        # Uniform DOF (e.g. all Pose2):
+        result = GBPOptimizer(graph, values, GBPParams(dof=3)).optimize()
+
+        # Mixed DOF (e.g. planning graph with Pose2 + Vector variables):
+        result = GBPOptimizer(graph, values, params, dof_map={key: dof, ...}).optimize()
     """
 
     def __init__(self, graph: gtsam.NonlinearFactorGraph,
                  values: gtsam.Values,
-                 params: GBPParams = None):
-        self.graph  = graph
-        self.values = values
-        self.params = params if params is not None else GBPParams()
+                 params: GBPParams = None,
+                 dof_map: dict = None):
+        self.graph   = graph
+        self.values  = values
+        self.params  = params if params is not None else GBPParams()
+        self.dof_map = dof_map
         self._gbp_nodes:   dict = {}
         self._gbp_factors: list = []
         self._build_topology()
 
     def _build_topology(self) -> None:
-        dof = self.params.dof
-
         for key in self.values.keys():
+            if self.dof_map is not None:
+                dof = self.dof_map[key]
+            else:
+                dof = self.params.dof
             self._gbp_nodes[key] = GBPNode(key, dof)
 
         for i in range(self.graph.size()):
             f = self.graph.at(i)  # TODO: guard against None when sliding window is added
-            keys  = list(f.keys())
-            gbp_f = GBPFactor(adj_keys=keys, node_dofs=[dof] * len(keys))
+            keys      = list(f.keys())
+            node_dofs = [self._gbp_nodes[k].DOF for k in keys]
+            gbp_f = GBPFactor(adj_keys=keys, node_dofs=node_dofs)
             self._gbp_factors.append(gbp_f)
             for k in keys:
                 if k in self._gbp_nodes:
