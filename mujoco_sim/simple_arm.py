@@ -93,7 +93,7 @@ def main():
     # With kp=30 and this arm, worst-case ≈ 0.015 rad; 0.05 gives safe margin.
     arrival_threshold = 0.05   # radians
 
-    def controller(qpos, qvel, spos, t):
+    def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         robot_data["joint_angles"] = qpos
         robot_data["sensor_distances"] = [
             np.linalg.norm(spos[i] - spos[i + 1]) for i in range(len(spos) - 1)

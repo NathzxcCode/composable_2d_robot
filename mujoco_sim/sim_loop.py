@@ -105,7 +105,8 @@ def run_simulation(
             # ----------------------------------------------------------------
             if controller is not None:
                 ctrl, last_calibrations = controller(
-                    joint_angles, joint_velocities, sensor_positions, data.time
+                    joint_angles, joint_velocities, sensor_positions,
+                    joint_positions, joint_rotations, data.time
                 )
                 data.ctrl[:] = np.asarray(ctrl, dtype=np.float64)
 

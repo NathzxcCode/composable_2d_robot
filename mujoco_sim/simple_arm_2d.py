@@ -39,10 +39,18 @@ def main():
         ),
     ]
 
-    fg = PlanningGraph(limbs, time_horizon=5, dt=0.5, goal_xy=(0.0, 0.40))
+    fg = PlanningGraph(limbs, time_horizon=5, dt=0.1, goal_xy=(0.3, -0.15))
 
-    def controller(qpos, qvel, spos, t):
-        ctrl = fg.centralised_solve(qpos)
+    def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
+        # Build ground-truth [x, y, theta] per joint from MuJoCo state.
+        # joint_positions[i] = world-space anchor of joint i (3D).
+        # joint_rotations[i] = 3x3 world-to-body rotation matrix; for a Z-axis
+        # hinge, atan2(R[1,0], R[0,0]) recovers the accumulated rotation angle.
+        joint_poses = np.array([
+            [pos[0], pos[1], np.arctan2(rot[1, 0], rot[0, 0])]
+            for pos, rot in zip(joint_positions, joint_rotations)
+        ])
+        ctrl = fg.centralised_solve(qpos, joint_poses)
         return ctrl, []
 
     run_simulation(limbs, controller=controller, control_hz=10.0)

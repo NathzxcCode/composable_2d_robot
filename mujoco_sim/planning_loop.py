@@ -93,9 +93,10 @@ class PlanningGraph:
     """
     Receding-horizon motion planner over a fixed-topology GTSAM factor graph.
 
-    The graph is built once in __init__. Each call to centralised_solve():
-      1. Updates k=0 joint poses to match the actual robot state (from qpos FK).
-      2. Replaces the start-endpoint prior with the current end-effector pose.
+    Each call to centralised_solve(current_qpos, joint_poses):
+      1. Updates k=0 joint variable values from ground-truth MuJoCo poses.
+      2. Replaces the k=0 root anchor and inter-joint kinematic factors with
+         the measured joint angles, firmly grounding the current arm state.
       3. Runs LM optimisation.
       4. Shifts all values one timestep forward (receding window).
       5. Returns planned relative joint angles for the next timestep.
@@ -113,6 +114,9 @@ class PlanningGraph:
         self.initial = gtsam.Values()
         self.params  = gtsam.LevenbergMarquardtParams()
 
+        self._k0_root_idx   = None   # graph index of PriorFactor on J(1, 0)
+        self._k0_kin_indices = []    # graph indices of inter-joint kinematics at k=0
+
         # Cumulative X positions for straight-arm initialisation
         x_positions = [0.0]
         for L in self.limb_lengths:
@@ -123,11 +127,15 @@ class PlanningGraph:
             anchor_noise = ANCHOR_NOISE if k == 0 else LOOSE_ANCHOR_NOISE
             self.graph.add(gtsam.PriorFactorPose2(
                 _J(1, k), gtsam.Pose2(0.0, 0.0, 0.0), anchor_noise))
+            if k == 0:
+                self._k0_root_idx = self.graph.size() - 1
 
             for i in range(1, self.num_limbs):
                 self.graph.add(make_fixed_kinematics_factor(
                     _J(i, k), _J(i + 1, k),
                     self.limb_lengths[i - 1], 0.0, LOOSE_ANCHOR_NOISE))
+                if k == 0:
+                    self._k0_kin_indices.append(self.graph.size() - 1)
 
             self.graph.add(make_fixed_kinematics_factor(
                 _J(self.num_limbs, k), _E(self.num_limbs, k),
@@ -143,7 +151,7 @@ class PlanningGraph:
         # --- Connect chains across timesteps via dynamics ---
         for k in range(time_horizon - 1):
             self.graph.add(_make_task_space_dynamics_factor(
-                _E(self.num_limbs, k),  _VE(self.num_limbs, k),
+                _E(self.num_limbs, k),   _VE(self.num_limbs, k),
                 _E(self.num_limbs, k+1), _VE(self.num_limbs, k+1),
                 dt, sigma_endpoint))
             for i in range(1, self.num_limbs + 1):
@@ -151,32 +159,47 @@ class PlanningGraph:
                     _J(i, k), _V(i, k), _J(i, k+1), _V(i, k+1),
                     dt, sigma_joint))
 
-        # Start-endpoint prior (replaced each step with actual measured pose)
-        init_end = self.initial.atPose2(_E(self.num_limbs, 0))
-        self.graph.add(gtsam.PriorFactorPose2(
-            _E(self.num_limbs, 0), init_end, ANCHOR_NOISE))
-        self.PRIOR_INDEX = self.graph.size() - 1
-
         # Goal prior on the horizon endpoint
         self.graph.add(gtsam.PriorFactorPose2(
             _E(self.num_limbs, time_horizon - 1),
             gtsam.Pose2(goal_xy[0], goal_xy[1], 0.0),
             GOAL_NOISE))
 
-    def centralised_solve(self, current_qpos: np.ndarray) -> np.ndarray:
-        # FK: convert relative joint angles to global Pose2 for each joint
-        cum_theta, x, y = 0.0, 0.0, 0.0
-        for i in range(self.num_limbs):
-            cum_theta += current_qpos[i]
-            self.initial.update(_J(i + 1, 0), gtsam.Pose2(x, y, cum_theta))
-            x += self.limb_lengths[i] * np.cos(cum_theta)
-            y += self.limb_lengths[i] * np.sin(cum_theta)
-        end_pose = gtsam.Pose2(x, y, cum_theta)
+    def centralised_solve(self, current_qpos: np.ndarray,
+                          joint_poses: np.ndarray) -> np.ndarray:
+        """
+        current_qpos : (num_limbs,) relative joint angles from encoders.
+        joint_poses  : (num_limbs, 3) ground-truth [x, y, theta] per joint.
+        """
+        # 1. Update k=0 joint variable values from ground-truth poses
+        for i, xyt in enumerate(joint_poses):
+            self.initial.update(_J(i + 1, 0),
+                                gtsam.Pose2(float(xyt[0]), float(xyt[1]), float(xyt[2])))
+
+        # Compute endpoint from the last joint pose
+        last = joint_poses[-1]
+        last_pose = gtsam.Pose2(float(last[0]), float(last[1]), float(last[2]))
+        end_pose  = last_pose.compose(gtsam.Pose2(self.limb_lengths[-1], 0.0, 0.0))
         self.initial.update(_E(self.num_limbs, 0), end_pose)
 
-        # Update start-endpoint prior to actual current end-effector position
-        self.graph.replace(self.PRIOR_INDEX,
-            gtsam.PriorFactorPose2(_E(self.num_limbs, 0), end_pose, ANCHOR_NOISE))
+        # 2. Replace root anchor with the actual measured J(1,0) pose (includes qpos[0])
+        self.graph.replace(self._k0_root_idx,
+            gtsam.PriorFactorPose2(
+                _J(1, 0),
+                gtsam.Pose2(float(joint_poses[0][0]),
+                            float(joint_poses[0][1]),
+                            float(joint_poses[0][2])),
+                ANCHOR_NOISE))
+
+        # 3. Replace k=0 inter-joint kinematics with measured relative angles.
+        #    Factor J(i,0)->J(i+1,0) (1-indexed i) uses qpos[i] (0-indexed).
+        for graph_idx, i in zip(self._k0_kin_indices, range(1, self.num_limbs)):
+            self.graph.replace(graph_idx,
+                make_fixed_kinematics_factor(
+                    _J(i, 0), _J(i + 1, 0),
+                    self.limb_lengths[i - 1],
+                    float(current_qpos[i]),
+                    KINEMATIC_NOISE))
 
         result = gtsam.LevenbergMarquardtOptimizer(
             self.graph, self.initial, self.params).optimize()
@@ -192,7 +215,7 @@ class PlanningGraph:
             self.initial.update(_VE(self.num_limbs, k),
                                 result.atVector(_VE(self.num_limbs, next_k)))
 
-        # Extract planned joint angles at k=1 and convert global theta to relative
+        # Extract planned relative joint angles at k=1
         thetas = [result.atPose2(_J(i + 1, 1)).theta() for i in range(self.num_limbs)]
         ctrl = np.zeros(self.num_limbs)
         ctrl[0] = thetas[0]
