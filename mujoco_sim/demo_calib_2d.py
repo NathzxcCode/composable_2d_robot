@@ -21,6 +21,35 @@ def _to_3d_calib(calib):
     }
 
 
+def planar_fk_and_jacobian(q, lengths):
+    """2D end-effector position and 2×n Jacobian for a Z-axis planar arm."""
+    cum = np.cumsum(q)
+    x = sum(L * np.cos(a) for L, a in zip(lengths, cum))
+    y = sum(L * np.sin(a) for L, a in zip(lengths, cum))
+    J = np.zeros((2, len(q)))
+    for j in range(len(q)):
+        for i in range(j, len(q)):
+            J[0, j] -= lengths[i] * np.sin(cum[i])
+            J[1, j] += lengths[i] * np.cos(cum[i])
+    return np.array([x, y]), J
+
+
+def ik_step(q, lengths, x_target, step_size=0.5, lam=0.05):
+    x_cur, J = planar_fk_and_jacobian(q, lengths)
+    J_dls = J.T @ np.linalg.inv(J @ J.T + lam**2 * np.eye(2))
+    return q + step_size * J_dls @ (x_target - x_cur)
+
+
+def circle_target(t, cx, cy, radius, period):
+    a = 2 * np.pi * t / period
+    return np.array([cx + radius * np.cos(a), cy + radius * np.sin(a)])
+
+
+def figure8_target(t, cx, cy, rx, ry, period):
+    a = 2 * np.pi * t / period
+    return np.array([cx + rx * np.sin(a), cy + ry * np.sin(2 * a)])
+
+
 def main():
     pi = np.pi
 
@@ -66,9 +95,7 @@ def main():
     }
     fg = FactorGraph()
     FG_UPDATE_INTERVAL = 2.0
-
-    limb_targets = [limb.joint_centre for limb in limbs]
-    arrival_threshold = 0.05
+    limb_lengths = [l.length for l in limbs]
 
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         robot_data["joint_angles"] = qpos
@@ -83,14 +110,8 @@ def main():
 
         calibrations = [_to_3d_calib(c) for c in fg.extract_calibrations()]
 
-        actions = np.zeros_like(qpos)
-        for i, limb in enumerate(limbs):
-            if abs(qpos[i] - limb_targets[i]) < arrival_threshold:
-                limb_targets[i] = np.random.uniform(
-                    low=limb.joint_centre - limb.joint_range,
-                    high=limb.joint_centre + limb.joint_range,
-                )
-            actions[i] = limb_targets[i]
+        target = figure8_target(t, cx=0.25, cy=0.0, rx=0.15, ry=0.12, period=10.0)
+        actions = ik_step(qpos, limb_lengths, target)
 
         return actions, calibrations
 
