@@ -37,9 +37,39 @@ def main():
             joint_centre=0.0,
             joint_range=np.pi / 2,
         ),
+        # LimbSpec(
+        #     length=0.15, radius=0.015, density=500.0,
+        #     attach_pos=[0.15, 0.0, 0.0],
+        #     attach_euler=[0.0, 0.0, 0.0],
+        #     joint_axis=[0.0, 0.0, 1.0],
+        #     joint_damping=0.4,
+        #     sensor_pos=[0.12, 0.0, 0.0],
+        #     joint_centre=0.0,
+        #     joint_range=np.pi / 2,
+        # ),
+        # LimbSpec(
+        #     length=0.15, radius=0.015, density=500.0,
+        #     attach_pos=[0.15, 0.0, 0.0],
+        #     attach_euler=[0.0, 0.0, 0.0],
+        #     joint_axis=[0.0, 0.0, 1.0],
+        #     joint_damping=0.4,
+        #     sensor_pos=[0.12, 0.0, 0.0],
+        #     joint_centre=0.0,
+        #     joint_range=np.pi / 2,
+        # ),
+        #  LimbSpec(
+        #     length=0.15, radius=0.015, density=500.0,
+        #     attach_pos=[0.15, 0.0, 0.0],
+        #     attach_euler=[0.0, 0.0, 0.0],
+        #     joint_axis=[0.0, 0.0, 1.0],
+        #     joint_damping=0.4,
+        #     sensor_pos=[0.12, 0.0, 0.0],
+        #     joint_centre=0.0,
+        #     joint_range=np.pi / 2,
+        # ),
     ]
 
-    fg = PlanningGraph(limbs, time_horizon=5, dt=0.1, goal_xy=(0.3, -0.15))
+    fg = PlanningGraph(limbs, time_horizon=2, dt=0.1, goal_xy=(0.0, -0.15))
 
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         # Build ground-truth [x, y, theta] per joint from MuJoCo state.
@@ -50,7 +80,7 @@ def main():
             [pos[0], pos[1], np.arctan2(rot[1, 0], rot[0, 0])]
             for pos, rot in zip(joint_positions, joint_rotations)
         ])
-        ctrl = fg.centralised_solve(qpos, joint_poses)
+        ctrl = fg.gbp_solve(qpos, joint_poses, damping=0.7)
         return ctrl, []
 
     run_simulation(limbs, controller=controller, control_hz=10.0)

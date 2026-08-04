@@ -21,21 +21,35 @@ def _to_3d_calib(calib):
     }
 
 
-def planar_fk_and_jacobian(q, lengths):
-    """2D end-effector position and 2×n Jacobian for a Z-axis planar arm."""
+def planar_fk_and_jacobian(q, lengths, calib_offsets=None):
+    """
+    2D end-effector position and 2×n Jacobian for a Z-axis planar arm.
+
+    calib_offsets: list of (cx, cy) per link, where (cx, cy) is the calibration
+                   offset at the end of that link in the parent's local frame.
+                   cx adjusts effective length; cy adds a perpendicular offset.
+                   Defaults to zero (nominal model).
+    """
+    n = len(q)
+    if calib_offsets is None:
+        calib_offsets = [(0.0, 0.0)] * n
     cum = np.cumsum(q)
-    x = sum(L * np.cos(a) for L, a in zip(lengths, cum))
-    y = sum(L * np.sin(a) for L, a in zip(lengths, cum))
-    J = np.zeros((2, len(q)))
-    for j in range(len(q)):
-        for i in range(j, len(q)):
-            J[0, j] -= lengths[i] * np.sin(cum[i])
-            J[1, j] += lengths[i] * np.cos(cum[i])
+    x, y = 0.0, 0.0
+    J = np.zeros((2, n))
+    for k in range(n):
+        cx, cy = calib_offsets[k]
+        Leff = lengths[k] + cx
+        cos_k, sin_k = np.cos(cum[k]), np.sin(cum[k])
+        x += Leff * cos_k - cy * sin_k
+        y += Leff * sin_k + cy * cos_k
+        for j in range(k + 1):
+            J[0, j] += -Leff * sin_k - cy * cos_k
+            J[1, j] +=  Leff * cos_k - cy * sin_k
     return np.array([x, y]), J
 
 
-def ik_step(q, lengths, x_target, step_size=0.5, lam=0.05):
-    x_cur, J = planar_fk_and_jacobian(q, lengths)
+def ik_step(q, lengths, x_target, step_size=0.5, lam=0.05, calib_offsets=None):
+    x_cur, J = planar_fk_and_jacobian(q, lengths, calib_offsets)
     J_dls = J.T @ np.linalg.inv(J @ J.T + lam**2 * np.eye(2))
     return q + step_size * J_dls @ (x_target - x_cur)
 
@@ -45,9 +59,21 @@ def circle_target(t, cx, cy, radius, period):
     return np.array([cx + radius * np.cos(a), cy + radius * np.sin(a)])
 
 
-def figure8_target(t, cx, cy, rx, ry, period):
+# def figure8_target(t, cx, cy, rx, ry, period):
+#     a = 2 * np.pi * t / period
+#     return np.array([cx + rx * np.sin(2 * a), cy + ry * np.sin(a)])
+
+def figure8_target(t, cx, cy, rx, ry, period, angle_deg=45.0):
     a = 2 * np.pi * t / period
-    return np.array([cx + rx * np.sin(a), cy + ry * np.sin(2 * a)])
+    x = rx * np.sin(2 * a)
+    y = ry * np.sin(a)
+    # rotate the shape by angle_deg around its centre
+    rad = np.radians(angle_deg)
+    cos_r, sin_r = np.cos(rad), np.sin(rad)
+    return np.array([
+        cx + cos_r * x - sin_r * y,
+        cy + sin_r * x + cos_r * y,
+    ])
 
 
 def main():
@@ -63,13 +89,13 @@ def main():
             attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 0.0, 1.0],
             joint_damping=0.4,
-            sensor_pos=[0.06, 0.0, 0.0],
+            sensor_pos=[0.12, 0.0, 0.0],
             joint_centre=0.0,
             joint_range=pi / 2,
         ),
         LimbSpec(
             length=0.15, radius=0.015, density=500.0,
-            attach_pos=[0.12, 0.02, 0.0],   # miscalibrated: 3 cm short, 2 cm lateral
+            attach_pos=[0.13, 0.0, 0.0],   # miscalibrated: 3 cm short, 2 cm lateral
             attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 0.0, 1.0],
             joint_damping=0.4,
@@ -79,7 +105,17 @@ def main():
         ),
         LimbSpec(
             length=0.15, radius=0.015, density=500.0,
-            attach_pos=[0.15, 0.0, 0.0],    # nominal (correct)
+            attach_pos=[0.13, 0.0, 0.0],    # nominal (correct)
+            attach_euler=[0.0, 0.0, 0.0],
+            joint_axis=[0.0, 0.0, 1.0],
+            joint_damping=0.4,
+            sensor_pos=[0.12, 0.0, 0.0],
+            joint_centre=0.0,
+            joint_range=pi / 2,
+        ),
+        LimbSpec(
+            length=0.15, radius=0.015, density=500.0,
+            attach_pos=[0.13, 0.0, 0.0],    # nominal (correct)
             attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 0.0, 1.0],
             joint_damping=0.4,
@@ -105,17 +141,24 @@ def main():
 
         if (t - robot_data["last_fg_update_time"]) >= FG_UPDATE_INTERVAL:
             fg.update_factor_graph(robot_data)
-            fg.centralised_solve()
+            fg.gbp_solve(n_outer=8, n_inner=8)
             robot_data["last_fg_update_time"] = t
 
-        calibrations = [_to_3d_calib(c) for c in fg.extract_calibrations()]
+        # Build per-link calibration offsets for the IK FK model.
+        # extract_calibrations()[k] = CJ(k+1) = offset at the end of link k.
+        # The last link has no calibration so its entry remains (0, 0).
+        raw_calibs = fg.extract_calibrations()
+        calibrations = [_to_3d_calib(c) for c in raw_calibs]
+        calib_offsets = [(0.0, 0.0)] * len(limbs)
+        for k, c in enumerate(raw_calibs):
+            calib_offsets[k] = tuple(c["mean"])
 
-        target = figure8_target(t, cx=0.25, cy=0.0, rx=0.15, ry=0.12, period=10.0)
-        actions = ik_step(qpos, limb_lengths, target)
+        target = figure8_target(t, cx=0.3, cy=0.1, rx=0.15, ry=0.2, period=10.0)
+        actions = ik_step(qpos, limb_lengths, target, calib_offsets=calib_offsets)
 
         return actions, calibrations
 
-    run_simulation(limbs, controller=controller, control_hz=50.0)
+    run_simulation(limbs, controller=controller, control_hz=50.0, trail_length=600)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 from typing import Callable, Optional, List
+from collections import deque
 import time
 import numpy as np
 import mujoco
@@ -19,6 +20,7 @@ def run_simulation(
     base_pos: tuple = (0, 0, 0),
     kp: float = 30.0,
     control_hz: float = 50.0,
+    trail_length: int = 0,
 ):
     """
     Run the MuJoCo simulation loop.
@@ -59,6 +61,7 @@ def run_simulation(
 
     # Last calibrations from controller, held between control calls
     last_calibrations: list = []
+    trail: deque = deque(maxlen=trail_length) if trail_length > 0 else None
 
     step_count = 0
 
@@ -100,6 +103,10 @@ def run_simulation(
                     joint_positions[i - 1] + (joint_rotations[i - 1] @ expected_connection_pos[i - 1])
                 )
 
+            if trail is not None:
+                tip = joint_positions[-1] + joint_rotations[-1] @ np.array([limbs[-1].length, 0.0, 0.0])
+                trail.append(tip.copy())
+
             # ----------------------------------------------------------------
             # Call controller at control_hz
             # ----------------------------------------------------------------
@@ -118,6 +125,22 @@ def run_simulation(
                 global_joint_connection_positions, joint_rotations,
                 sigma=2.0,
             )
+
+            if trail is not None and len(trail) > 1:
+                pts = list(trail)
+                for i in range(1, len(pts)):
+                    idx = viewer.user_scn.ngeom
+                    if idx >= viewer.user_scn.maxgeom:
+                        break
+                    mujoco.mjv_connector(
+                        viewer.user_scn.geoms[idx],
+                        mujoco.mjtGeom.mjGEOM_CAPSULE,
+                        0.004,
+                        pts[i - 1], pts[i],
+                    )
+                    viewer.user_scn.geoms[idx].rgba[:] = [1.0, 0.4, 0.0, 0.8]
+                    viewer.user_scn.ngeom += 1
+
             viewer.sync()
 
             # ----------------------------------------------------------------
