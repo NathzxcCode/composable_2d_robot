@@ -21,6 +21,7 @@ def run_simulation(
     kp: float = 30.0,
     control_hz: float = 50.0,
     trail_length: int = 0,
+    initial_qpos=None,
 ):
     """
     Run the MuJoCo simulation loop.
@@ -44,6 +45,10 @@ def run_simulation(
     xml = build_robot_xml(limbs, base_pos=base_pos, kp=kp)
     model = mujoco.MjModel.from_xml_string(xml)
     data  = mujoco.MjData(model)
+
+    if initial_qpos is not None:
+        data.qpos[:] = np.asarray(initial_qpos, dtype=np.float64)
+        mujoco.mj_forward(model, data)
 
     sim_dt      = model.opt.timestep          # e.g. 0.002 s
     control_dt  = 1.0 / control_hz            # e.g. 0.020 s at 50 Hz
@@ -171,6 +176,7 @@ def run_multi_robot_simulation(
     kp: float = 30.0,
     control_hz: float = 50.0,
     trail_length: int = 0,
+    initial_qpos: list = None,
 ):
     """
     Run a MuJoCo simulation with multiple robots in one scene.
@@ -190,6 +196,17 @@ def run_multi_robot_simulation(
     xml   = build_multi_robot_xml(robot_specs, kp=kp)
     model = mujoco.MjModel.from_xml_string(xml)
     data  = mujoco.MjData(model)
+
+    if initial_qpos is not None:
+        # initial_qpos is a list of per-robot arrays; assemble into flat qpos
+        limb_counts_init = [len(spec[0]) for spec in robot_specs]
+        starts_init      = [sum(limb_counts_init[:r]) for r in range(len(robot_specs))]
+        for r_id, qpos_r in enumerate(initial_qpos):
+            if qpos_r is not None:
+                s = starts_init[r_id]
+                n = limb_counts_init[r_id]
+                data.qpos[s:s + n] = np.asarray(qpos_r, dtype=np.float64)
+        mujoco.mj_forward(model, data)
 
     sim_dt         = model.opt.timestep
     control_dt     = 1.0 / control_hz
