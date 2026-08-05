@@ -12,9 +12,9 @@ from gtsam_gbp import GBPOptimizer, GBPParams
 # information within ~3 orders of magnitude of the dynamics factors (~1), which
 # is required for GBP message passing to stay numerically stable.
 # (1e-4 sigmas give 1e8 information, causing 9-OOM spread that breaks GBP.)
-KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05, 0.05, 0.02]))
-ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05, 0.05, 0.02]))
-LOOSE_ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05, 0.05, 10.0]))
+KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.005, 0.005, 0.02]))
+ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.005, 0.005, 0.02]))
+LOOSE_ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.005, 0.005, 10.0]))
 GOAL_NOISE         = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.06, 0.06, 1000.0]))
 
 

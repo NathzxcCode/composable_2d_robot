@@ -164,7 +164,8 @@ _TRAIL_COLORS = [
 
 def run_multi_robot_simulation(
     robot_specs: list,
-    controllers: list,
+    controllers: list = None,
+    joint_controller=None,
     time_limit: float = float("inf"),
     real_time: bool = True,
     kp: float = 30.0,
@@ -174,12 +175,18 @@ def run_multi_robot_simulation(
     """
     Run a MuJoCo simulation with multiple robots in one scene.
 
-    robot_specs:  list of (limbs, base_pos) tuples, one per robot.
-    controllers:  list of callables, one per robot.
-                  Each has the same signature as the single-robot controller:
-                  (qpos, qvel, spos, joint_positions, joint_rotations, t)
-                  -> (ctrl_array, calibrations)
+    robot_specs:       list of (limbs, base_pos) tuples, one per robot.
+    controllers:       list of per-robot callables (one per robot):
+                         (qpos, qvel, spos, joint_positions, joint_rotations, t)
+                         -> (ctrl_array, calibrations)
+    joint_controller:  single callable for all robots (mutually exclusive with controllers):
+                         (all_states, t) -> (list_of_ctrl_arrays, calibrations)
+                         where all_states = [(qpos, qvel, spos, jpos, jrot), ...]
+    Exactly one of controllers or joint_controller must be provided.
     """
+    if (controllers is None) == (joint_controller is None):
+        raise ValueError("Provide exactly one of controllers or joint_controller.")
+
     xml   = build_multi_robot_xml(robot_specs, kp=kp)
     model = mujoco.MjModel.from_xml_string(xml)
     data  = mujoco.MjData(model)
@@ -207,20 +214,21 @@ def run_multi_robot_simulation(
                 mujoco.mj_step(model, data)
 
             # ----------------------------------------------------------------
-            # Read and dispatch per-robot state
+            # Read per-robot state
             # ----------------------------------------------------------------
+            all_states = []
             for r_id, (limbs, _) in enumerate(robot_specs):
-                p   = f"r{r_id}_"
-                s   = starts[r_id]
-                n   = limb_counts[r_id]
+                p = f"r{r_id}_"
+                s = starts[r_id]
+                n = limb_counts[r_id]
 
                 qpos_r = data.qpos[s:s + n].copy()
                 qvel_r = data.qvel[s:s + n].copy()
 
-                spos_r  = []
-                jpos_r  = []
-                jrot_r  = []
-                exp_r   = []
+                spos_r = []
+                jpos_r = []
+                jrot_r = []
+                exp_r  = []
                 for i in range(n):
                     spos_r.append(data.sensor(f"{p}sensor_pos_{i}").data.copy())
                     jpos_r.append(data.joint(f"{p}joint_{i}").xanchor.copy())
@@ -232,10 +240,25 @@ def run_multi_robot_simulation(
                     tip = jpos_r[-1] + jrot_r[-1] @ exp_r[-1]
                     trails[r_id].append(tip.copy())
 
-                ctrl_r, last_calibrations[r_id] = controllers[r_id](
-                    qpos_r, qvel_r, spos_r, jpos_r, jrot_r, data.time
-                )
-                data.ctrl[s:s + n] = np.asarray(ctrl_r, dtype=np.float64)
+                all_states.append((qpos_r, qvel_r, spos_r, jpos_r, jrot_r))
+
+            # ----------------------------------------------------------------
+            # Call controller(s) and write ctrl
+            # ----------------------------------------------------------------
+            if joint_controller is not None:
+                all_ctrls, calibrations = joint_controller(all_states, data.time)
+                last_calibrations = [[]] * len(robot_specs)
+                for r_id in range(len(robot_specs)):
+                    s, n = starts[r_id], limb_counts[r_id]
+                    data.ctrl[s:s + n] = np.asarray(all_ctrls[r_id], dtype=np.float64)
+            else:
+                for r_id in range(len(robot_specs)):
+                    qpos_r, qvel_r, spos_r, jpos_r, jrot_r = all_states[r_id]
+                    s, n = starts[r_id], limb_counts[r_id]
+                    ctrl_r, last_calibrations[r_id] = controllers[r_id](
+                        qpos_r, qvel_r, spos_r, jpos_r, jrot_r, data.time
+                    )
+                    data.ctrl[s:s + n] = np.asarray(ctrl_r, dtype=np.float64)
 
             # ----------------------------------------------------------------
             # Render: clear scene then draw per-robot trails
