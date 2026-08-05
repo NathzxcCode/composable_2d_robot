@@ -94,6 +94,72 @@ def _make_joint_space_dynamics_factor(key_p1, key_v1, key_p2, key_v2, dt, sigma)
     return gtsam.CustomFactor(noise_model, keys, error_func)
 
 
+def _make_ellipsoid_collision_factor(key_A1, key_A2, key_B1, key_B2,
+                                     k=4.0, r=0.03, cost_sigma=0.1):
+    """
+    Smooth self-collision avoidance factor between two limb segments.
+    Each segment is defined by two Pose2 endpoint keys (start, end).
+    Uses Bhattacharyya distance between ellipsoid representations of the segments.
+    Only add between non-adjacent limbs (adjacent limbs share a joint endpoint).
+    """
+    Qi_inv = np.array([[cost_sigma ** -2.0]])
+    noise_model = gtsam.noiseModel.Gaussian.Information(Qi_inv)
+
+    def error_func(this, values, jacobians):
+        pA1 = values.atPose2(this.keys()[0])
+        pA2 = values.atPose2(this.keys()[1])
+        pB1 = values.atPose2(this.keys()[2])
+        pB2 = values.atPose2(this.keys()[3])
+
+        def z(rows, cols): return np.zeros((rows, cols), order='F')
+        H_tA1 = z(2, 3); H_tA2 = z(2, 3)
+        H_tB1 = z(2, 3); H_tB2 = z(2, 3)
+        xA1 = pA1.translation(H_tA1); xA2 = pA2.translation(H_tA2)
+        xB1 = pB1.translation(H_tB1); xB2 = pB2.translation(H_tB2)
+
+        mu_A = 0.5 * (xA1 + xA2);  mu_B = 0.5 * (xB1 + xB2)
+        v_A  = xA2 - xA1;          v_B  = xB2 - xB1
+        Sigma_A = 0.25 * np.outer(v_A, v_A) + (r**2) * np.eye(2)
+        Sigma_B = 0.25 * np.outer(v_B, v_B) + (r**2) * np.eye(2)
+        Sigma   = 0.5 * (Sigma_A + Sigma_B)
+        Sigma_inv = np.linalg.inv(Sigma)
+
+        d_mu       = mu_A - mu_B
+        mahalanobis = 0.125 * np.dot(d_mu, np.dot(Sigma_inv, d_mu))
+        shape_term  = 0.5 * np.log(np.linalg.det(Sigma) /
+                                    np.sqrt(np.linalg.det(Sigma_A) * np.linalg.det(Sigma_B)))
+        D_B   = mahalanobis + shape_term
+        error = np.array([np.exp(-k * D_B)])
+
+        if jacobians is not None:
+            dE_dDB   = -k * error[0]
+            dDB_dmuA = 0.25 * np.dot(Sigma_inv, d_mu)
+            dDB_dmuB = -dDB_dmuA
+            dE_dxA1_pos = dE_dDB * 0.5 * dDB_dmuA
+            dE_dxA2_pos = dE_dDB * 0.5 * dDB_dmuA
+            dE_dxB1_pos = dE_dDB * 0.5 * dDB_dmuB
+            dE_dxB2_pos = dE_dDB * 0.5 * dDB_dmuB
+            dDB_dSigma  = (-0.125 * np.outer(np.dot(Sigma_inv, d_mu),
+                                              np.dot(Sigma_inv, d_mu))
+                           + 0.5 * Sigma_inv)
+            dE_dSigma   = dE_dDB * dDB_dSigma
+            dE_dxA2_cov = np.zeros(2); dE_dxB2_cov = np.zeros(2)
+            for idx in range(2):
+                M_A = np.zeros((2, 2)); M_A[idx, :] += v_A; M_A[:, idx] += v_A
+                dE_dxA2_cov[idx] = np.sum(dE_dSigma * (0.5 * 0.25 * M_A))
+                M_B = np.zeros((2, 2)); M_B[idx, :] += v_B; M_B[:, idx] += v_B
+                dE_dxB2_cov[idx] = np.sum(dE_dSigma * (0.5 * 0.25 * M_B))
+            jacobians[0] = np.dot(dE_dxA1_pos - dE_dxA2_cov, H_tA1).reshape(1, 3)
+            jacobians[1] = np.dot(dE_dxA2_pos + dE_dxA2_cov, H_tA2).reshape(1, 3)
+            jacobians[2] = np.dot(dE_dxB1_pos - dE_dxB2_cov, H_tB1).reshape(1, 3)
+            jacobians[3] = np.dot(dE_dxB2_pos + dE_dxB2_cov, H_tB2).reshape(1, 3)
+        return error
+
+    keys = gtsam.KeyVector()
+    for key in [key_A1, key_A2, key_B1, key_B2]: keys.append(key)
+    return gtsam.CustomFactor(noise_model, keys, error_func)
+
+
 class PlanningGraph:
     """
     Receding-horizon motion planner over a fixed-topology GTSAM factor graph.
@@ -109,7 +175,9 @@ class PlanningGraph:
 
     def __init__(self, limbs, time_horizon=5, dt=0.5,
                  goal_xy=(0.3, 0.2),
-                 sigma_endpoint=10.0, sigma_joint=1.0):
+                 sigma_endpoint=10.0, sigma_joint=1.0,
+                 enable_collision_avoidance=False,
+                 collision_radius=0.03, collision_k=4.0, collision_sigma=0.1):
         self.num_limbs    = len(limbs)
         self.limb_lengths = [l.length for l in limbs]
         self.time_horizon = time_horizon
@@ -174,6 +242,20 @@ class PlanningGraph:
             _E(self.num_limbs, time_horizon - 1),
             gtsam.Pose2(goal_xy[0], goal_xy[1], 0.0),
             GOAL_NOISE))
+
+        # Self-collision avoidance between non-adjacent limb pairs at k=1..T-1.
+        # Adjacent limbs (|i-j|==1) share a joint endpoint and are skipped.
+        if enable_collision_avoidance:
+            for i in range(1, self.num_limbs + 1):
+                for j in range(i + 2, self.num_limbs + 1):
+                    for k in range(1, time_horizon):
+                        a1 = _J(i, k)
+                        a2 = _J(i + 1, k) if i < self.num_limbs else _E(self.num_limbs, k)
+                        b1 = _J(j, k)
+                        b2 = _J(j + 1, k) if j < self.num_limbs else _E(self.num_limbs, k)
+                        self.graph.add(_make_ellipsoid_collision_factor(
+                            a1, a2, b1, b2,
+                            k=collision_k, r=collision_radius, cost_sigma=collision_sigma))
 
     def _pre_solve(self, current_qpos: np.ndarray, joint_poses: np.ndarray) -> None:
         """Update k=0 variable values and replace k=0 factors with measured state."""

@@ -69,7 +69,8 @@ def main():
         # ),
     ]
 
-    fg = PlanningGraph(limbs, time_horizon=2, dt=0.1, goal_xy=(0.0, -0.15))
+    fg = PlanningGraph(limbs, time_horizon=2, dt=0.1, goal_xy=(0.2, 0.15), 
+                       enable_collision_avoidance=False)
 
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         # Build ground-truth [x, y, theta] per joint from MuJoCo state.
@@ -80,7 +81,7 @@ def main():
             [pos[0], pos[1], np.arctan2(rot[1, 0], rot[0, 0])]
             for pos, rot in zip(joint_positions, joint_rotations)
         ])
-        ctrl = fg.gbp_solve(qpos, joint_poses, damping=0.7)
+        ctrl = fg.centralised_solve(qpos, joint_poses)
         return ctrl, []
 
     run_simulation(limbs, controller=controller, control_hz=10.0)
