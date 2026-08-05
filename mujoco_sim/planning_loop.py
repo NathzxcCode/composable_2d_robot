@@ -194,6 +194,7 @@ class PlanningGraph:
         self.limb_lengths    = {}
         self._k0_root_idx    = {}
         self._k0_kin_indices = {}
+        self._goal_idx       = {}
 
         for robot_id, (limbs, goal_xy) in enumerate(zip(robots, goals)):
             self._setup_robot(robot_id, limbs, goal_xy, sigma_endpoint, sigma_joint)
@@ -270,6 +271,16 @@ class PlanningGraph:
             _E(robot_id, n, self.time_horizon - 1),
             gtsam.Pose2(goal_xy[0], goal_xy[1], 0.0),
             GOAL_NOISE))
+        self._goal_idx[robot_id] = self.graph.size() - 1
+
+    def _update_goal(self, robot_id: int, goal_xy: tuple) -> None:
+        n = self._num_limbs[robot_id]
+        self.graph.replace(
+            self._goal_idx[robot_id],
+            gtsam.PriorFactorPose2(
+                _E(robot_id, n, self.time_horizon - 1),
+                gtsam.Pose2(goal_xy[0], goal_xy[1], 0.0),
+                GOAL_NOISE))
 
     def _pre_solve(self, robot_id: int, current_qpos: np.ndarray,
                    joint_poses: np.ndarray) -> None:
@@ -319,21 +330,29 @@ class PlanningGraph:
             ctrl[i] = thetas[i] - thetas[i - 1]
         return ctrl
 
-    def centralised_solve(self, robot_states: list) -> list:
+    def centralised_solve(self, robot_states: list, goals: list = None) -> list:
         """
         robot_states: [(qpos_0, joint_poses_0), (qpos_1, joint_poses_1), ...]
+        goals:        optional [(x, y), ...], one per robot. If provided, replaces
+                      all robots' goal priors before solving.
         Returns:      [ctrl_0, ctrl_1, ...] one numpy array per robot.
         """
+        if goals is not None:
+            for robot_id, goal_xy in enumerate(goals):
+                self._update_goal(robot_id, goal_xy)
         for robot_id, (qpos, joint_poses) in enumerate(robot_states):
             self._pre_solve(robot_id, qpos, joint_poses)
         result = gtsam.LevenbergMarquardtOptimizer(
             self.graph, self.initial, self.params).optimize()
         return [self._post_solve(robot_id, result) for robot_id in range(len(robot_states))]
 
-    def gbp_solve(self, robot_states: list,
+    def gbp_solve(self, robot_states: list, goals: list = None,
                   n_outer: int = 5, n_inner: int = 10,
                   damping: float = 0.0) -> list:
         """GBP variant — drop-in replacement for centralised_solve."""
+        if goals is not None:
+            for robot_id, goal_xy in enumerate(goals):
+                self._update_goal(robot_id, goal_xy)
         for robot_id, (qpos, joint_poses) in enumerate(robot_states):
             self._pre_solve(robot_id, qpos, joint_poses)
         result = GBPOptimizer(
