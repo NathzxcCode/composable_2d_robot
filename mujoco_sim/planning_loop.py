@@ -18,10 +18,11 @@ LOOSE_ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05, 0.05, 10.0
 GOAL_NOISE         = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.06, 0.06, 1000.0]))
 
 
-def _J(i, t):  return gtsam.Symbol('j', i * 1000 + t).key()
-def _E(i, t):  return gtsam.Symbol('e', i * 1000 + t).key()
-def _V(i, t):  return gtsam.Symbol('o', i * 1000 + t).key()
-def _VE(i, t): return gtsam.Symbol('v', i * 1000 + t).key()
+# Keys encode robot_id * 100000 + limb_index * 1000 + timestep
+def _J(r, i, t):  return gtsam.Symbol('j', r * 100000 + i * 1000 + t).key()
+def _E(r, i, t):  return gtsam.Symbol('e', r * 100000 + i * 1000 + t).key()
+def _V(r, i, t):  return gtsam.Symbol('o', r * 100000 + i * 1000 + t).key()
+def _VE(r, i, t): return gtsam.Symbol('v', r * 100000 + i * 1000 + t).key()
 
 
 def _make_task_space_dynamics_factor(key_p1, key_v1, key_p2, key_v2, dt, sigma):
@@ -162,167 +163,182 @@ def _make_ellipsoid_collision_factor(key_A1, key_A2, key_B1, key_B2,
 
 class PlanningGraph:
     """
-    Receding-horizon motion planner over a fixed-topology GTSAM factor graph.
+    Receding-horizon motion planner supporting one or more robots in a shared
+    factor graph.
 
-    Each call to centralised_solve(current_qpos, joint_poses):
-      1. Updates k=0 joint variable values from ground-truth MuJoCo poses.
-      2. Replaces the k=0 root anchor and inter-joint kinematic factors with
-         the measured joint angles, firmly grounding the current arm state.
-      3. Runs LM optimisation.
-      4. Shifts all values one timestep forward (receding window).
-      5. Returns planned relative joint angles for the next timestep.
+    robots  : list of LimbSpec lists, one per robot.
+    goals   : list of (x, y) goal positions, one per robot.
+
+    centralised_solve(robot_states) and gbp_solve(robot_states, ...)
+    both accept robot_states = [(qpos_0, joint_poses_0), ...] and return
+    a list of ctrl arrays, one per robot.
     """
 
-    def __init__(self, limbs, time_horizon=5, dt=0.5,
-                 goal_xy=(0.3, 0.2),
+    def __init__(self, robots, goals,
+                 time_horizon=5, dt=0.5,
                  sigma_endpoint=10.0, sigma_joint=1.0,
                  enable_collision_avoidance=False,
                  collision_radius=0.03, collision_k=4.0, collision_sigma=0.1):
-        self.num_limbs    = len(limbs)
-        self.limb_lengths = [l.length for l in limbs]
+
         self.time_horizon = time_horizon
         self.dt           = dt
+        self._num_robots  = len(robots)
 
-        self.graph    = gtsam.NonlinearFactorGraph()
-        self.initial  = gtsam.Values()
-        self.params   = gtsam.LevenbergMarquardtParams()
-        self._dof_map = {}  # key -> tangent-space DOF, used by GBPOptimizer
+        self.graph   = gtsam.NonlinearFactorGraph()
+        self.initial = gtsam.Values()
+        self.params  = gtsam.LevenbergMarquardtParams()
+        self._dof_map = {}
 
-        self._k0_root_idx   = None
-        self._k0_kin_indices = []
+        # Per-robot state (keyed by robot_id int)
+        self._num_limbs      = {}
+        self.limb_lengths    = {}
+        self._k0_root_idx    = {}
+        self._k0_kin_indices = {}
 
-        # Cumulative X positions for straight-arm initialisation
-        x_positions = [0.0]
-        for L in self.limb_lengths:
-            x_positions.append(x_positions[-1] + L)
+        for robot_id, (limbs, goal_xy) in enumerate(zip(robots, goals)):
+            self._setup_robot(robot_id, limbs, goal_xy, sigma_endpoint, sigma_joint)
 
-        # --- Build one kinematic chain per timestep ---
-        for k in range(time_horizon):
+        # Inter-robot collision avoidance (requires at least 2 robots)
+        if enable_collision_avoidance and self._num_robots > 1:
+            for r_a in range(self._num_robots):
+                for r_b in range(r_a + 1, self._num_robots):
+                    n_a = self._num_limbs[r_a]
+                    n_b = self._num_limbs[r_b]
+                    for k in range(1, time_horizon):
+                        for i in range(1, n_a + 1):
+                            a1 = _J(r_a, i, k)
+                            a2 = _J(r_a, i + 1, k) if i < n_a else _E(r_a, n_a, k)
+                            for j in range(1, n_b + 1):
+                                b1 = _J(r_b, j, k)
+                                b2 = _J(r_b, j + 1, k) if j < n_b else _E(r_b, n_b, k)
+                                self.graph.add(_make_ellipsoid_collision_factor(
+                                    a1, a2, b1, b2,
+                                    k=collision_k, r=collision_radius,
+                                    cost_sigma=collision_sigma))
+
+    def _setup_robot(self, robot_id, limbs, goal_xy, sigma_endpoint, sigma_joint):
+        """Build the kinematic chain, dynamics, and goal prior for one robot."""
+        n = len(limbs)
+        self._num_limbs[robot_id]      = n
+        self.limb_lengths[robot_id]    = [l.length for l in limbs]
+        self._k0_kin_indices[robot_id] = []
+
+        x_pos = [0.0]
+        for L in self.limb_lengths[robot_id]:
+            x_pos.append(x_pos[-1] + L)
+
+        for k in range(self.time_horizon):
             anchor_noise = ANCHOR_NOISE if k == 0 else LOOSE_ANCHOR_NOISE
             self.graph.add(gtsam.PriorFactorPose2(
-                _J(1, k), gtsam.Pose2(0.0, 0.0, 0.0), anchor_noise))
+                _J(robot_id, 1, k), gtsam.Pose2(0.0, 0.0, 0.0), anchor_noise))
             if k == 0:
-                self._k0_root_idx = self.graph.size() - 1
+                self._k0_root_idx[robot_id] = self.graph.size() - 1
 
-            for i in range(1, self.num_limbs):
+            for i in range(1, n):
                 self.graph.add(make_fixed_kinematics_factor(
-                    _J(i, k), _J(i + 1, k),
-                    self.limb_lengths[i - 1], 0.0, LOOSE_ANCHOR_NOISE))
+                    _J(robot_id, i, k), _J(robot_id, i + 1, k),
+                    self.limb_lengths[robot_id][i - 1], 0.0, LOOSE_ANCHOR_NOISE))
                 if k == 0:
-                    self._k0_kin_indices.append(self.graph.size() - 1)
+                    self._k0_kin_indices[robot_id].append(self.graph.size() - 1)
 
             self.graph.add(make_fixed_kinematics_factor(
-                _J(self.num_limbs, k), _E(self.num_limbs, k),
-                self.limb_lengths[-1], 0.0, KINEMATIC_NOISE))
+                _J(robot_id, n, k), _E(robot_id, n, k),
+                self.limb_lengths[robot_id][-1], 0.0, KINEMATIC_NOISE))
 
-            for i in range(1, self.num_limbs + 1):
-                self.initial.insert(_J(i, k), gtsam.Pose2(x_positions[i - 1], 0.0, 0.0))
-                self.initial.insert(_V(i, k), np.array([0.0]))
-                self._dof_map[_J(i, k)] = 3
-                self._dof_map[_V(i, k)] = 1
-            self.initial.insert(_E(self.num_limbs, k),
-                                gtsam.Pose2(x_positions[self.num_limbs], 0.0, 0.0))
-            self.initial.insert(_VE(self.num_limbs, k), np.array([0.0, 0.0]))
-            self._dof_map[_E(self.num_limbs, k)] = 3
-            self._dof_map[_VE(self.num_limbs, k)] = 2
+            for i in range(1, n + 1):
+                self.initial.insert(_J(robot_id, i, k), gtsam.Pose2(x_pos[i - 1], 0.0, 0.0))
+                self.initial.insert(_V(robot_id, i, k), np.array([0.0]))
+                self._dof_map[_J(robot_id, i, k)] = 3
+                self._dof_map[_V(robot_id, i, k)] = 1
+            self.initial.insert(_E(robot_id, n, k), gtsam.Pose2(x_pos[n], 0.0, 0.0))
+            self.initial.insert(_VE(robot_id, n, k), np.array([0.0, 0.0]))
+            self._dof_map[_E(robot_id, n, k)] = 3
+            self._dof_map[_VE(robot_id, n, k)] = 2
 
-        # --- Connect chains across timesteps via dynamics ---
-        for k in range(time_horizon - 1):
+        for k in range(self.time_horizon - 1):
             self.graph.add(_make_task_space_dynamics_factor(
-                _E(self.num_limbs, k),   _VE(self.num_limbs, k),
-                _E(self.num_limbs, k+1), _VE(self.num_limbs, k+1),
-                dt, sigma_endpoint))
-            for i in range(1, self.num_limbs + 1):
+                _E(robot_id, n, k),   _VE(robot_id, n, k),
+                _E(robot_id, n, k+1), _VE(robot_id, n, k+1),
+                self.dt, sigma_endpoint))
+            for i in range(1, n + 1):
                 self.graph.add(_make_joint_space_dynamics_factor(
-                    _J(i, k), _V(i, k), _J(i, k+1), _V(i, k+1),
-                    dt, sigma_joint))
+                    _J(robot_id, i, k), _V(robot_id, i, k),
+                    _J(robot_id, i, k+1), _V(robot_id, i, k+1),
+                    self.dt, sigma_joint))
 
-        # Goal prior on the horizon endpoint
         self.graph.add(gtsam.PriorFactorPose2(
-            _E(self.num_limbs, time_horizon - 1),
+            _E(robot_id, n, self.time_horizon - 1),
             gtsam.Pose2(goal_xy[0], goal_xy[1], 0.0),
             GOAL_NOISE))
 
-        # Self-collision avoidance between non-adjacent limb pairs at k=1..T-1.
-        # Adjacent limbs (|i-j|==1) share a joint endpoint and are skipped.
-        if enable_collision_avoidance:
-            for i in range(1, self.num_limbs + 1):
-                for j in range(i + 2, self.num_limbs + 1):
-                    for k in range(1, time_horizon):
-                        a1 = _J(i, k)
-                        a2 = _J(i + 1, k) if i < self.num_limbs else _E(self.num_limbs, k)
-                        b1 = _J(j, k)
-                        b2 = _J(j + 1, k) if j < self.num_limbs else _E(self.num_limbs, k)
-                        self.graph.add(_make_ellipsoid_collision_factor(
-                            a1, a2, b1, b2,
-                            k=collision_k, r=collision_radius, cost_sigma=collision_sigma))
+    def _pre_solve(self, robot_id: int, current_qpos: np.ndarray,
+                   joint_poses: np.ndarray) -> None:
+        """Ground robot_id's k=0 state to the measured configuration."""
+        n = self._num_limbs[robot_id]
 
-    def _pre_solve(self, current_qpos: np.ndarray, joint_poses: np.ndarray) -> None:
-        """Update k=0 variable values and replace k=0 factors with measured state."""
         for i, xyt in enumerate(joint_poses):
-            self.initial.update(_J(i + 1, 0),
+            self.initial.update(_J(robot_id, i + 1, 0),
                                 gtsam.Pose2(float(xyt[0]), float(xyt[1]), float(xyt[2])))
 
-        last = joint_poses[-1]
-        last_pose = gtsam.Pose2(float(last[0]), float(last[1]), float(last[2]))
-        end_pose  = last_pose.compose(gtsam.Pose2(self.limb_lengths[-1], 0.0, 0.0))
-        self.initial.update(_E(self.num_limbs, 0), end_pose)
+        last     = joint_poses[-1]
+        end_pose = gtsam.Pose2(float(last[0]), float(last[1]), float(last[2])).compose(
+                       gtsam.Pose2(self.limb_lengths[robot_id][-1], 0.0, 0.0))
+        self.initial.update(_E(robot_id, n, 0), end_pose)
 
-        self.graph.replace(self._k0_root_idx,
+        self.graph.replace(self._k0_root_idx[robot_id],
             gtsam.PriorFactorPose2(
-                _J(1, 0),
+                _J(robot_id, 1, 0),
                 gtsam.Pose2(float(joint_poses[0][0]),
                             float(joint_poses[0][1]),
                             float(joint_poses[0][2])),
                 ANCHOR_NOISE))
 
-        for graph_idx, i in zip(self._k0_kin_indices, range(1, self.num_limbs)):
+        for graph_idx, i in zip(self._k0_kin_indices[robot_id], range(1, n)):
             self.graph.replace(graph_idx,
                 make_fixed_kinematics_factor(
-                    _J(i, 0), _J(i + 1, 0),
-                    self.limb_lengths[i - 1],
+                    _J(robot_id, i, 0), _J(robot_id, i + 1, 0),
+                    self.limb_lengths[robot_id][i - 1],
                     float(current_qpos[i]),
                     KINEMATIC_NOISE))
 
-    def _post_solve(self, result: gtsam.Values) -> np.ndarray:
-        """Shift the receding window forward and extract relative joint angles at k=1."""
+    def _post_solve(self, robot_id: int, result: gtsam.Values) -> np.ndarray:
+        """Shift robot_id's receding window and extract k=1 joint angles."""
+        n = self._num_limbs[robot_id]
         for k in range(self.time_horizon):
             next_k = k + 1 if k < self.time_horizon - 1 else k
-            for i in range(1, self.num_limbs + 1):
-                self.initial.update(_J(i, k), result.atPose2(_J(i, next_k)))
-                self.initial.update(_V(i, k), result.atVector(_V(i, next_k)))
-            self.initial.update(_E(self.num_limbs, k),
-                                result.atPose2(_E(self.num_limbs, next_k)))
-            self.initial.update(_VE(self.num_limbs, k),
-                                result.atVector(_VE(self.num_limbs, next_k)))
+            for i in range(1, n + 1):
+                self.initial.update(_J(robot_id, i, k), result.atPose2(_J(robot_id, i, next_k)))
+                self.initial.update(_V(robot_id, i, k), result.atVector(_V(robot_id, i, next_k)))
+            self.initial.update(_E(robot_id, n, k), result.atPose2(_E(robot_id, n, next_k)))
+            self.initial.update(_VE(robot_id, n, k), result.atVector(_VE(robot_id, n, next_k)))
 
-        thetas = [result.atPose2(_J(i + 1, 1)).theta() for i in range(self.num_limbs)]
-        ctrl = np.zeros(self.num_limbs)
+        thetas = [result.atPose2(_J(robot_id, i + 1, 1)).theta() for i in range(n)]
+        ctrl = np.zeros(n)
         ctrl[0] = thetas[0]
-        for i in range(1, self.num_limbs):
+        for i in range(1, n):
             ctrl[i] = thetas[i] - thetas[i - 1]
         return ctrl
 
-    def centralised_solve(self, current_qpos: np.ndarray,
-                          joint_poses: np.ndarray) -> np.ndarray:
+    def centralised_solve(self, robot_states: list) -> list:
         """
-        current_qpos : (num_limbs,) relative joint angles from encoders.
-        joint_poses  : (num_limbs, 3) ground-truth [x, y, theta] per joint.
+        robot_states: [(qpos_0, joint_poses_0), (qpos_1, joint_poses_1), ...]
+        Returns:      [ctrl_0, ctrl_1, ...] one numpy array per robot.
         """
-        self._pre_solve(current_qpos, joint_poses)
+        for robot_id, (qpos, joint_poses) in enumerate(robot_states):
+            self._pre_solve(robot_id, qpos, joint_poses)
         result = gtsam.LevenbergMarquardtOptimizer(
             self.graph, self.initial, self.params).optimize()
-        return self._post_solve(result)
+        return [self._post_solve(robot_id, result) for robot_id in range(len(robot_states))]
 
-    def gbp_solve(self, current_qpos: np.ndarray,
-                  joint_poses: np.ndarray,
+    def gbp_solve(self, robot_states: list,
                   n_outer: int = 5, n_inner: int = 10,
-                  damping: float = 0.0) -> np.ndarray:
+                  damping: float = 0.0) -> list:
         """GBP variant — drop-in replacement for centralised_solve."""
-        self._pre_solve(current_qpos, joint_poses)
+        for robot_id, (qpos, joint_poses) in enumerate(robot_states):
+            self._pre_solve(robot_id, qpos, joint_poses)
         result = GBPOptimizer(
             self.graph, self.initial,
             GBPParams(n_outer=n_outer, n_inner=n_inner, damping=damping),
             dof_map=self._dof_map,
         ).optimize()
-        return self._post_solve(result)
+        return [self._post_solve(robot_id, result) for robot_id in range(len(robot_states))]
