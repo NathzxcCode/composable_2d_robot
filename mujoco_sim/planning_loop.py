@@ -178,7 +178,8 @@ class PlanningGraph:
                  time_horizon=5, dt=0.5,
                  sigma_endpoint=10.0, sigma_joint=1.0,
                  enable_collision_avoidance=False,
-                 collision_radius=0.03, collision_k=4.0, collision_sigma=0.1):
+                 collision_radius=0.03, collision_k=4.0, collision_sigma=0.1,
+                 base_positions=None):
 
         self.time_horizon = time_horizon
         self.dt           = dt
@@ -197,8 +198,12 @@ class PlanningGraph:
         self._goal_idx       = {}
         self.last_result     = None   # stored after each solve for visualisation
 
+        if base_positions is None:
+            base_positions = [(0.0, 0.0)] * len(robots)
+
         for robot_id, (limbs, goal_xy) in enumerate(zip(robots, goals)):
-            self._setup_robot(robot_id, limbs, goal_xy, sigma_endpoint, sigma_joint)
+            self._setup_robot(robot_id, limbs, goal_xy, sigma_endpoint, sigma_joint,
+                              base_positions[robot_id])
 
         # Inter-robot collision avoidance (requires at least 2 robots)
         if enable_collision_avoidance and self._num_robots > 1:
@@ -218,21 +223,25 @@ class PlanningGraph:
                                     k=collision_k, r=collision_radius,
                                     cost_sigma=collision_sigma))
 
-    def _setup_robot(self, robot_id, limbs, goal_xy, sigma_endpoint, sigma_joint):
+    def _setup_robot(self, robot_id, limbs, goal_xy, sigma_endpoint, sigma_joint,
+                     base_xy=(0.0, 0.0)):
         """Build the kinematic chain, dynamics, and goal prior for one robot."""
         n = len(limbs)
         self._num_limbs[robot_id]      = n
         self.limb_lengths[robot_id]    = [l.length for l in limbs]
         self._k0_kin_indices[robot_id] = []
 
-        x_pos = [0.0]
+        # Cumulative X positions for straight-arm initialisation, offset by base
+        x_pos = [base_xy[0]]
         for L in self.limb_lengths[robot_id]:
             x_pos.append(x_pos[-1] + L)
 
         for k in range(self.time_horizon):
             anchor_noise = ANCHOR_NOISE if k == 0 else LOOSE_ANCHOR_NOISE
             self.graph.add(gtsam.PriorFactorPose2(
-                _J(robot_id, 1, k), gtsam.Pose2(0.0, 0.0, 0.0), anchor_noise))
+                _J(robot_id, 1, k),
+                gtsam.Pose2(base_xy[0], base_xy[1], 0.0),
+                anchor_noise))
             if k == 0:
                 self._k0_root_idx[robot_id] = self.graph.size() - 1
 
@@ -248,11 +257,13 @@ class PlanningGraph:
                 self.limb_lengths[robot_id][-1], 0.0, KINEMATIC_NOISE))
 
             for i in range(1, n + 1):
-                self.initial.insert(_J(robot_id, i, k), gtsam.Pose2(x_pos[i - 1], 0.0, 0.0))
+                self.initial.insert(_J(robot_id, i, k),
+                                    gtsam.Pose2(x_pos[i - 1], base_xy[1], 0.0))
                 self.initial.insert(_V(robot_id, i, k), np.array([0.0]))
                 self._dof_map[_J(robot_id, i, k)] = 3
                 self._dof_map[_V(robot_id, i, k)] = 1
-            self.initial.insert(_E(robot_id, n, k), gtsam.Pose2(x_pos[n], 0.0, 0.0))
+            self.initial.insert(_E(robot_id, n, k),
+                                gtsam.Pose2(x_pos[n], base_xy[1], 0.0))
             self.initial.insert(_VE(robot_id, n, k), np.array([0.0, 0.0]))
             self._dof_map[_E(robot_id, n, k)] = 3
             self._dof_map[_VE(robot_id, n, k)] = 2

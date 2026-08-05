@@ -53,11 +53,12 @@ def main():
     # Robot 1 goal: reach toward negative Y (mirrored).
     pg = PlanningGraph(
         [limbs_0, limbs_1],
-        [(0.0, 0.4),
-         (0.0, 0.4)],
-        time_horizon=5, dt=0.1,
+        [(0.2, 0.15),
+         (0.1, 0.3)],
+        base_positions=[(spec[1][0], spec[1][1]) for spec in robot_specs],
+        time_horizon=4, dt=0.1,
         enable_collision_avoidance=True,
-        collision_radius=0.025,
+        collision_radius=0.03,
         # collision_sigma=0.05,
         collision_k=3
     )
