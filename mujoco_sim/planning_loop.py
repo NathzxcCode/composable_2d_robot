@@ -195,6 +195,7 @@ class PlanningGraph:
         self._k0_root_idx    = {}
         self._k0_kin_indices = {}
         self._goal_idx       = {}
+        self.last_result     = None   # stored after each solve for visualisation
 
         for robot_id, (limbs, goal_xy) in enumerate(zip(robots, goals)):
             self._setup_robot(robot_id, limbs, goal_xy, sigma_endpoint, sigma_joint)
@@ -330,6 +331,26 @@ class PlanningGraph:
             ctrl[i] = thetas[i] - thetas[i - 1]
         return ctrl
 
+    def planned_positions(self, robot_id: int) -> list:
+        """
+        Returns the planned arm positions from the last solve as a list of timesteps.
+        Each entry is a list of (x, y) tuples: joints in order followed by the endpoint.
+        Returns an empty list if no solve has been run yet.
+        """
+        if self.last_result is None:
+            return []
+        n = self._num_limbs[robot_id]
+        timesteps = []
+        for k in range(self.time_horizon):
+            pts = []
+            for i in range(1, n + 1):
+                p = self.last_result.atPose2(_J(robot_id, i, k))
+                pts.append((p.x(), p.y()))
+            e = self.last_result.atPose2(_E(robot_id, n, k))
+            pts.append((e.x(), e.y()))
+            timesteps.append(pts)
+        return timesteps
+
     def centralised_solve(self, robot_states: list, goals: list = None) -> list:
         """
         robot_states: [(qpos_0, joint_poses_0), (qpos_1, joint_poses_1), ...]
@@ -344,6 +365,7 @@ class PlanningGraph:
             self._pre_solve(robot_id, qpos, joint_poses)
         result = gtsam.LevenbergMarquardtOptimizer(
             self.graph, self.initial, self.params).optimize()
+        self.last_result = result
         return [self._post_solve(robot_id, result) for robot_id in range(len(robot_states))]
 
     def gbp_solve(self, robot_states: list, goals: list = None,

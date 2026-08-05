@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 from limb_spec import LimbSpec
 from planning_loop import PlanningGraph
@@ -52,9 +53,9 @@ def main():
     # Robot 1 goal: reach toward negative Y (mirrored).
     pg = PlanningGraph(
         [limbs_0, limbs_1],
-        [(0.05, 0.3),
-         (-0.05, 0.3)],
-        time_horizon=2, dt=0.1,
+        [(0.0, 0.4),
+         (0.0, 0.4)],
+        time_horizon=5, dt=0.1,
         enable_collision_avoidance=True,
         collision_radius=0.025,
         # collision_sigma=0.05,
@@ -62,6 +63,27 @@ def main():
     )
 
     all_limbs = [limbs_0, limbs_1]
+    _ROBOT_COLORS = ['tab:blue', 'tab:orange']
+
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    def _draw_plan(ax):
+        ax.cla()
+        ax.set_aspect('equal')
+        ax.grid(True)
+        ax.set_title('Planned horizon')
+        for r_id in range(len(all_limbs)):
+            timesteps = pg.planned_positions(r_id)
+            color = _ROBOT_COLORS[r_id]
+            n_steps = len(timesteps)
+            for k, pts in enumerate(timesteps):
+                alpha = 0.25 + 0.75 * k / max(n_steps - 1, 1)
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                ax.plot(xs, ys, '-o', color=color, alpha=alpha,
+                        linewidth=2, markersize=4)
+        plt.pause(0.001)
 
     def joint_controller(all_states, t):
         robot_states = []
@@ -72,8 +94,8 @@ def main():
             ])
             robot_states.append((qpos, joint_poses))
 
-        # all_ctrls = pg.gbp_solve(robot_states, damping=0.95, n_inner=5, n_outer=8)
         all_ctrls = pg.centralised_solve(robot_states)
+        _draw_plan(ax)
         return all_ctrls, []
 
     run_multi_robot_simulation(
