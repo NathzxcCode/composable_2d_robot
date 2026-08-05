@@ -9,9 +9,10 @@ DEFAULT_KP       = 30.0
 DEFAULT_F_MAX    = 1.0
 
 def _build_limb_xml(
-    i: int, 
-    limbs: List[LimbSpec], 
-    indent: int = 2
+    i: int,
+    limbs: List[LimbSpec],
+    indent: int = 2,
+    prefix: str = "",
 ) -> str:
     # Base case: if we have processed all limbs, stop recursion
     if i >= len(limbs):
@@ -31,27 +32,27 @@ def _build_limb_xml(
 
     lines = [
         # The body is positioned and oriented relative to its direct parent frame
-        f'{ind}<body name="limb_{i}" pos="{pos_str}" euler="{euler_str}">',
+        f'{ind}<body name="{prefix}limb_{i}" pos="{pos_str}" euler="{euler_str}">',
         
         # The joint uses a dynamic axis allowing for 3D routing later
-        f'{ind2}<joint name="joint_{i}" type="hinge" axis="{axis_str}" damping="{limb.joint_damping}"/>',
+        f'{ind2}<joint name="{prefix}joint_{i}" type="hinge" axis="{axis_str}" damping="{limb.joint_damping}"/>',
         
         # Visual/Physical geometry for the link anchor point and body bone
-        f'{ind2}<geom name="joint_{i}_sphere" type="sphere" size="{limb.radius * 1.5}" rgba="0.6 0.6 0.6 1"/>',
-        f'{ind2}<geom name="limb_{i}_geom" type="capsule" '
+        f'{ind2}<geom name="{prefix}joint_{i}_sphere" type="sphere" size="{limb.radius * 1.5}" rgba="0.6 0.6 0.6 1"/>',
+        f'{ind2}<geom name="{prefix}limb_{i}_geom" type="capsule" '
         f'fromto="0 0 0 {limb.length} 0 0" size="{limb.radius}" '
         f'rgba="{rgba}" density="{limb.density}"/>',
         
         # Static target site representing the absolute tip of the limb segment
-        f'{ind2}<site name="tip_{i}" pos="{limb.length} 0 0" size="0.006" rgba="1 0 0 1" type="sphere"/>',
+        f'{ind2}<site name="{prefix}tip_{i}" pos="{limb.length} 0 0" size="0.006" rgba="1 0 0 1" type="sphere"/>',
         
         # Sensor tracking target, explicitly placed based on known calibration coordinates
-        f'{ind2}<site name="sensor_{i}" pos="{sensor_pos_str}" euler="{sensor_euler_str}" size="0.006" '
+        f'{ind2}<site name="{prefix}sensor_{i}" pos="{sensor_pos_str}" euler="{sensor_euler_str}" size="0.006" '
         f'rgba="0.0 1.0 1.0 1" type="sphere"/>',
     ]
 
     # Recurse down to the next child link nested inside this body tag
-    child = _build_limb_xml(i + 1, limbs, indent + 1)
+    child = _build_limb_xml(i + 1, limbs, indent + 1, prefix)
     if child:
         lines.append(child)
         
@@ -112,5 +113,71 @@ def build_robot_xml(
 
   <sensor>
 {sensors}
+  </sensor>
+</mujoco>'''
+
+
+def build_multi_robot_xml(
+    robot_specs: List[Tuple],
+    kp: float = DEFAULT_KP,
+    f_max: float = DEFAULT_F_MAX,
+) -> str:
+    """
+    Build a single MuJoCo XML containing multiple robots.
+
+    robot_specs: list of (limbs, base_pos) tuples, one per robot.
+    Each robot's MuJoCo names are prefixed with r{id}_ to avoid conflicts.
+    """
+    bodies_parts    = []
+    actuators_parts = []
+    sensors_parts   = []
+
+    for robot_id, (limbs, base_pos) in enumerate(robot_specs):
+        p = f"r{robot_id}_"
+        limbs_xml = _build_limb_xml(0, limbs, indent=2, prefix=p)
+        bodies_parts.append(
+            f'    <body name="{p}base" pos="{base_pos[0]} {base_pos[1]} {base_pos[2]}">\n'
+            f'      <geom name="{p}base_geom" type="cylinder" size="0.04 0.015" rgba="0.4 0.4 0.4 1"/>\n'
+            f'{limbs_xml}\n'
+            f'    </body>'
+        )
+        for i in range(len(limbs)):
+            actuators_parts.append(
+                f'    <position name="{p}act_joint_{i}" joint="{p}joint_{i}" kp="{kp}" '
+                f'forcelimited="true" forcerange="-{f_max} {f_max}"/>'
+            )
+            sensors_parts.append(
+                f'    <framepos name="{p}sensor_pos_{i}" objtype="site" objname="{p}sensor_{i}"/>'
+            )
+
+    bodies_str    = "\n".join(bodies_parts)
+    actuators_str = "\n".join(actuators_parts)
+    sensors_str   = "\n".join(sensors_parts)
+
+    return f'''<?xml version="1.0"?>
+<mujoco model="composable_multi_robot">
+  <compiler angle="radian" coordinate="local"/>
+  <option gravity="0 0 -9.81" timestep="0.002"/>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker"
+             rgb1="0.1 0.1 0.1" rgb2="0.15 0.15 0.2"
+             width="300" height="300"/>
+    <material name="grid" texture="grid" texrepeat="6 6" reflectance="0.1"/>
+  </asset>
+
+  <worldbody>
+    <geom name="ground" type="plane" size="2 2 0.1" material="grid"/>
+    <light name="light" pos="0 3 4" dir="0 -1 -1"/>
+
+{bodies_str}
+  </worldbody>
+
+  <actuator>
+{actuators_str}
+  </actuator>
+
+  <sensor>
+{sensors_str}
   </sensor>
 </mujoco>'''
