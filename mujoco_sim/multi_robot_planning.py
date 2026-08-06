@@ -62,7 +62,7 @@ def main():
         [limbs_0, limbs_1],
         [waypoints[0][0], waypoints[1][0]],
         base_positions=[(spec[1][0], spec[1][1]) for spec in robot_specs],
-        time_horizon=4, dt=0.1,
+        time_horizon=4, dt=[0.1, 0.2, 0.4],
         enable_collision_avoidance=True,
         collision_radius=0.03,
         collision_k=2.8,

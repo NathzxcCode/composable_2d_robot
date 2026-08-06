@@ -175,11 +175,14 @@ class PlanningGraph:
     """
 
     def __init__(self, robots, goals,
-                 time_horizon=5, dt=0.5,
+                 time_horizon=5, dt=None,
                  sigma_endpoint=10.0, sigma_joint=1.0,
                  enable_collision_avoidance=False,
                  collision_radius=0.03, collision_k=4.0, collision_sigma=0.1,
                  base_positions=None):
+
+        assert dt is not None and len(dt) == time_horizon - 1, \
+            f"dt must be a list of {time_horizon - 1} floats for time_horizon={time_horizon}"
 
         self.time_horizon = time_horizon
         self.dt           = dt
@@ -272,12 +275,12 @@ class PlanningGraph:
             self.graph.add(_make_task_space_dynamics_factor(
                 _E(robot_id, n, k),   _VE(robot_id, n, k),
                 _E(robot_id, n, k+1), _VE(robot_id, n, k+1),
-                self.dt, sigma_endpoint))
+                self.dt[k], sigma_endpoint))
             for i in range(1, n + 1):
                 self.graph.add(_make_joint_space_dynamics_factor(
                     _J(robot_id, i, k), _V(robot_id, i, k),
                     _J(robot_id, i, k+1), _V(robot_id, i, k+1),
-                    self.dt, sigma_joint))
+                    self.dt[k], sigma_joint))
 
         self.graph.add(gtsam.PriorFactorPose2(
             _E(robot_id, n, self.time_horizon - 1),

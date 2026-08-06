@@ -84,7 +84,7 @@ def main():
         # ),
     ]
 
-    fg = PlanningGraph([limbs], [(0.2, 0.3)], time_horizon=2, dt=0.1)
+    fg = PlanningGraph([limbs], [(0.2, 0.3)], time_horizon=2, dt=[0.1])
 
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         # Build ground-truth [x, y, theta] per joint from MuJoCo state.
