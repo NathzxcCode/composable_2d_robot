@@ -39,6 +39,8 @@ def _make_planar_limbs():
     ]
 
 
+ARRIVAL_THR = 0.007  # metres — distance at which a waypoint is considered reached
+
 def main():
     limbs_0 = _make_planar_limbs()
     limbs_1 = _make_planar_limbs()
@@ -48,19 +50,23 @@ def main():
         (limbs_1, (0.2, 0.0, 0.0)),
     ]
 
-    # Both robots share one factor graph and one solve call per control step.
-    # Robot 0 goal: reach toward positive Y.
-    # Robot 1 goal: reach toward negative Y (mirrored).
+    # Waypoints designed to force crossing paths, exercising collision avoidance.
+    # Robot 0 sweeps right then left; robot 1 mirrors (left then right).
+    waypoints = [
+        [(0.1, 0.35), (0.15, 0.25), (0.0, 0.43)],   # robot 0
+        [(0.15, 0.25), (0.3, 0.43), (0.2, 0.35), (0.3, 0.35)],   # robot 1
+    ]
+    goal_idx = [0, 0]
+
     pg = PlanningGraph(
         [limbs_0, limbs_1],
-        [(0.2, 0.15),
-         (0.1, 0.3)],
+        [waypoints[0][0], waypoints[1][0]],
         base_positions=[(spec[1][0], spec[1][1]) for spec in robot_specs],
         time_horizon=4, dt=0.1,
         enable_collision_avoidance=True,
         collision_radius=0.03,
-        # collision_sigma=0.05,
-        collision_k=3
+        collision_k=2.8,
+        collision_sigma=0.16
     )
 
     all_limbs = [limbs_0, limbs_1]
@@ -95,7 +101,24 @@ def main():
             ])
             robot_states.append((qpos, joint_poses))
 
-        all_ctrls = pg.centralised_solve(robot_states)
+        current_goals = [waypoints[r][goal_idx[r]] for r in range(len(all_limbs))]
+        all_ctrls = pg.centralised_solve(robot_states, goals=current_goals)
+
+        # Check arrival using the post-optimisation k=0 end-effector belief.
+        # This reflects the factor graph's estimate of current position rather
+        # than raw simulator ground truth, matching the intended architecture.
+        for r in range(len(all_limbs)):
+            timesteps = pg.planned_positions(r)
+            if not timesteps:
+                continue
+            ee = np.array(timesteps[0][-1])  # k=0 end effector (x, y)
+            goal = np.array(current_goals[r])
+            print(np.linalg.norm(ee - goal))
+            if np.linalg.norm(ee - goal) < ARRIVAL_THR:
+                print("robot: ", r, "reached goal: ", waypoints[r][goal_idx[r]])
+                goal_idx[r] = (goal_idx[r] + 1) % len(waypoints[r])
+                
+
         _draw_plan(ax)
         return all_ctrls, []
 
@@ -105,9 +128,9 @@ def main():
         control_hz=10.0,
         trail_length=200,
         initial_qpos=[
-        np.array([np.pi/2, 0.0, 0.0]),   # robot 0
-        np.array([np.pi/2, 0.0, 0.0]),   # robot 1
-    ]
+            np.array([np.pi/2, 0.0, 0.0]),   # robot 0
+            np.array([np.pi/2, 0.0, 0.0]),   # robot 1
+        ]
     )
 
 
