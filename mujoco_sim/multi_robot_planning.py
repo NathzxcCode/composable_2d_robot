@@ -62,7 +62,7 @@ def main():
         [limbs_0, limbs_1],
         [waypoints[0][0], waypoints[1][0]],
         base_positions=[(spec[1][0], spec[1][1]) for spec in robot_specs],
-        time_horizon=4, dt=[0.1, 0.2, 0.4],
+        time_horizon=4, dt=[0.025, 0.05, 0.1],
         enable_collision_avoidance=True,
         collision_radius=0.03,
         collision_k=2.8,
@@ -102,6 +102,7 @@ def main():
             robot_states.append((qpos, joint_poses))
 
         current_goals = [waypoints[r][goal_idx[r]] for r in range(len(all_limbs))]
+        # all_ctrls = pg.gbp_solve(robot_states, goals=current_goals, n_inner=10, n_outer=3)
         all_ctrls = pg.centralised_solve(robot_states, goals=current_goals)
 
         # Check arrival using the post-optimisation k=0 end-effector belief.
@@ -113,7 +114,7 @@ def main():
                 continue
             ee = np.array(timesteps[0][-1])  # k=0 end effector (x, y)
             goal = np.array(current_goals[r])
-            print(np.linalg.norm(ee - goal))
+            # print(np.linalg.norm(ee - goal))
             if np.linalg.norm(ee - goal) < ARRIVAL_THR:
                 print("robot: ", r, "reached goal: ", waypoints[r][goal_idx[r]])
                 goal_idx[r] = (goal_idx[r] + 1) % len(waypoints[r])

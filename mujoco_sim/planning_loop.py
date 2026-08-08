@@ -327,7 +327,7 @@ class PlanningGraph:
                     float(current_qpos[i]),
                     KINEMATIC_NOISE))
 
-    def _post_solve(self, robot_id: int, result: gtsam.Values) -> np.ndarray:
+    def _post_solve_rotate(self, robot_id: int, result: gtsam.Values) -> np.ndarray:
         """Shift robot_id's receding window and extract k=1 joint angles."""
         n = self._num_limbs[robot_id]
         for k in range(self.time_horizon):
@@ -338,6 +338,18 @@ class PlanningGraph:
             self.initial.update(_E(robot_id, n, k), result.atPose2(_E(robot_id, n, next_k)))
             self.initial.update(_VE(robot_id, n, k), result.atVector(_VE(robot_id, n, next_k)))
 
+        thetas = [result.atPose2(_J(robot_id, i + 1, 1)).theta() for i in range(n)]
+        ctrl = np.zeros(n)
+        ctrl[0] = thetas[0]
+        for i in range(1, n):
+            ctrl[i] = thetas[i] - thetas[i - 1]
+        return ctrl
+
+    def _post_solve(self, robot_id: int, result: gtsam.Values) -> np.ndarray:
+        """set self.inital to the result only do not rotate."""
+        self.initial = result
+
+        n = self._num_limbs[robot_id]
         thetas = [result.atPose2(_J(robot_id, i + 1, 1)).theta() for i in range(n)]
         ctrl = np.zeros(n)
         ctrl[0] = thetas[0]
@@ -396,4 +408,5 @@ class PlanningGraph:
             GBPParams(n_outer=n_outer, n_inner=n_inner, damping=damping),
             dof_map=self._dof_map,
         ).optimize()
+        self.last_result = result
         return [self._post_solve(robot_id, result) for robot_id in range(len(robot_states))]
