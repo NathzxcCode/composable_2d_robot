@@ -87,13 +87,14 @@ def main():
     ]
 
     waypoints = [
-            [(0.2, 0.35), (0.15, 0.25), (0.0, 0.43)],   # robot 0
+            # [(0.2, 0.35), (0.15, 0.25), (0.0, 0.43)],   # robot 0
+            [(0.15, 0.25), (0.3, 0.43), (0.2, 0.35), (0.3, 0.35)]
         ]
     goal_idx = [0]
-    ARRIVAL_THR = 0.007
+    ARRIVAL_THR = 0.02
 
-    fg = PlanningGraph([limbs], [(0.2, 0.3)], time_horizon=4, dt=[0.1, 0.2, 0.4],
-                       sigma_joint=10)
+    fg = PlanningGraph([limbs], [waypoints[0][0]], time_horizon=4, dt=[0.1, 0.2, 0.4],
+                       base_positions=[(0.2,0,0)], sigma_endpoint=5, sigma_joint=1)
 
     plt.ion()
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -133,8 +134,8 @@ def main():
             for pos, rot in zip(joint_positions, joint_rotations)
         ])
         ctrl = fg.gbp_solve([(qpos, joint_poses)], goals=[target],
-                            n_inner=15, 
-                            n_outer=3)[0]
+                            n_inner=25, 
+                            n_outer=1, damping=0.52)[0]
         # ctrl = fg.centralised_solve([(qpos, joint_poses)], goals=[target])[0]
         print("ctrl ", ctrl)
 
@@ -153,7 +154,8 @@ def main():
         _draw_plan(ax)
         return ctrl, []
 
-    run_simulation(limbs, controller=controller, control_hz=10.0, trail_length=200)
+    run_simulation(limbs, controller=controller, control_hz=10.0, trail_length=200, 
+                   initial_qpos=np.array([np.pi/2,0,0]), base_pos=(0.2,0,0))
 
 
 if __name__ == "__main__":
