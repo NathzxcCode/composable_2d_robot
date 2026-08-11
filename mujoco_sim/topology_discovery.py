@@ -157,9 +157,8 @@ class TopologyDiscovery:
                     pair.status = CandidateStatus.CONFIRMED
                     self._confirmed_children[cid] = (cj_est, cj_cov)
                 else:
-                    # Failed: reset clock, keep CJ warm start for faster convergence on retry
-                    pair.co_occurrence_count = 0
-                    pair.observations.clear()
+                    # Failed: remove entirely so the next attempt starts with a clean slate
+                    del self._persistence[cid]
 
             elif pair.status == CandidateStatus.CONFIRMED:
                 cost_per_obs, cov_trace, cj_est, cj_cov = self._optimise_subgraph(pair)
