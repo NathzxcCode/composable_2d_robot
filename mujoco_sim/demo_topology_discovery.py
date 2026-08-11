@@ -10,9 +10,7 @@ from topology_discovery import TopologyDiscovery, identify_root, CandidateStatus
 
 _STATUS_COLORS = {
     CandidateStatus.CANDIDATE: "lightyellow",
-    CandidateStatus.ACTIVE:    "orange",
     CandidateStatus.CONFIRMED: "lightgreen",
-    CandidateStatus.STALE:     "lightcoral",
 }
 
 
@@ -101,10 +99,12 @@ def main():
             sigma_gps_theta=0.005,
             n_sigma_search=5.0,
             K=5,
-            TTL_max=5,
-            T_max=10,
-            cost_thr=5.0,
+            TTL_max=15,
+            T_max=15,
+            cost_thr=0.5,       # per-observation — tune from diagnostics
             cov_thr=0.01,
+            reject_thr=5.0,     # per-observation — incorrect pairs will be >> this
+            K_stale=3,
         )
         for i in range(n)
     ]
@@ -146,7 +146,7 @@ def main():
 
                 if cid in diag:
                     ax.text(cid, pid,
-                            f"cost={diag[cid]['cost']:.2f}\ncov={diag[cid]['cov_trace']:.4f}",
+                            f"c={diag[cid]['cost_per_obs']:.2f}\ncov={diag[cid]['cov_trace']:.4f}",
                             ha="center", va="center", fontsize=6)
 
         confirmed = {disc.limb_id: list(disc.get_children().keys()) for disc in discoveries}
@@ -190,9 +190,8 @@ def main():
             if diag:
                 for cid, d in diag.items():
                     print(f"  {disc.limb_id}→{cid}  "
-                          f"cost={d['cost']:.3f}  cov={d['cov_trace']:.5f}  "
-                          f"n={d['n_obs']}  [{d['status']}]"
-                          f"cj estimate={d["cj_estimate"]}")
+                          f"cost/obs={d['cost_per_obs']:.3f}  cov={d['cov_trace']:.5f}  "
+                          f"n={d['n_obs']}  hi={d['consecutive_high_cost']}  [{d['status']}]")
         print(f"  root={identify_root(discoveries)}")
 
         _draw_status()
