@@ -78,6 +78,7 @@ class TopologyDiscovery:
         limbs,
         sigma_gps_pos:   float = 0.001,
         sigma_gps_theta: float = 0.005,
+        sigma_encoder:   float = 0.005,
         n_sigma_search:  float = 5.0,
         K:               int   = 5,      # batch size: minimum observations for a reliable decision
         TTL_max:         int   = 15,
@@ -86,6 +87,7 @@ class TopologyDiscovery:
         cov_thr:         float = 0.01,
         reject_thr:      float = 5.0,    # per-observation cost above which a pair is considered disconnected
         K_stale:         int   = 3,      # consecutive high-cost steps before CONFIRMED resets
+        limb_base_radius:float = 0.03,
         n_outer:         int   = 3,
         n_inner:         int   = 5,
     ):
@@ -97,7 +99,7 @@ class TopologyDiscovery:
 
         self.sigma_gps_pos   = sigma_gps_pos
         self.sigma_gps_theta = sigma_gps_theta
-        self.search_radius   = n_sigma_search * sigma_gps_pos
+        self.search_radius   = limb_base_radius + (n_sigma_search * sigma_gps_pos)
 
         self.K          = K
         self.TTL_max    = TTL_max
@@ -112,6 +114,10 @@ class TopologyDiscovery:
         self._gps_noise = gtsam.noiseModel.Diagonal.Sigmas(
             np.array([sigma_gps_pos, sigma_gps_pos, sigma_gps_theta])
         )
+        self._kinematic_noise = gtsam.noiseModel.Diagonal.Sigmas(
+            np.array([0.001, 0.001, sigma_encoder])
+        )
+        
 
         self._persistence:        Dict[int, CandidatePair] = {}
         self._confirmed_children: Dict[int, Tuple]         = {}
@@ -158,6 +164,7 @@ class TopologyDiscovery:
                     self._confirmed_children[cid] = (cj_est, cj_cov)
                 else:
                     # Failed: remove entirely so the next attempt starts with a clean slate
+                    print(f"failed candiate: {self.limb_id}->{cid} cost: {cost_per_obs} cov: {cov_trace}", )
                     del self._persistence[cid]
 
             elif pair.status == CandidateStatus.CONFIRMED:
@@ -229,7 +236,7 @@ class TopologyDiscovery:
             graph.add(gtsam.PriorFactorPose2(jb_key, obs.J_b, self._gps_noise))
             graph.add(make_calib_kinematics_factor(
                 ja_key, cj_key, jb_key,
-                self.L_a, obs.theta_b, self._gps_noise,
+                self.L_a, obs.theta_b, self._kinematic_noise,
             ))
 
         params = GBPParams(n_outer=self.n_outer, n_inner=self.n_inner, damping=0.0, dof=3)

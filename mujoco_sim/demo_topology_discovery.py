@@ -14,6 +14,22 @@ _STATUS_COLORS = {
 }
 
 
+def apply_measurement_noise(gps_joint_poses, encoder_angles, sigma_pos, sigma_theta, sigma_encoder):
+    noisy_poses = {
+        i: gtsam.Pose2(
+            p.x()     + np.random.normal(0, sigma_pos),
+            p.y()     + np.random.normal(0, sigma_pos),
+            p.theta() + np.random.normal(0, sigma_theta),
+        )
+        for i, p in gps_joint_poses.items()
+    }
+    noisy_encoders = {
+        i: a + np.random.normal(0, sigma_encoder)
+        for i, a in encoder_angles.items()
+    }
+    return noisy_poses, noisy_encoders
+
+
 def _make_planar_limbs():
     pi = np.pi
     return [
@@ -24,9 +40,6 @@ def _make_planar_limbs():
             sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
         ),
         LimbSpec(
-            # Deliberate attachment offset on limb 1: true attach is 2 cm shorter
-            # than nominal length. Topology discovery should confirm this connection
-            # and CJ(0→1) should converge to approximately Pose2(-0.02, 0, 0).
             length=0.15, radius=0.015, density=500.0,
             attach_pos=[0.13, 0.0, 0.0], attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
@@ -34,7 +47,7 @@ def _make_planar_limbs():
         ),
         LimbSpec(
             length=0.15, radius=0.015, density=500.0,
-            attach_pos=[0.12, 0.0, 0.0], attach_euler=[0.0, 0.0, 0.0],
+            attach_pos=[0.15, -0.01, 0.0], attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
             sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
         ),
@@ -56,11 +69,11 @@ def make_double_limb():
             sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
         ),
         LimbSpec(
-                    length=0.15, radius=0.015, density=500.0,
-                    attach_pos=[0.12, 0.0, 0.0], attach_euler=[0.0, 0.0, 0.0],
-                    joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
-                    sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
-                ),
+            length=0.15, radius=0.015, density=500.0,
+            attach_pos=[0.12, 0.013, 0.0], attach_euler=[0.0, 0.0, 0.0],
+            joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
+            sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
+        ),
     ]
 
 def make_single_limb():
@@ -89,19 +102,25 @@ def main():
     limb_counts    = [len(robot_limbs) for robot_limbs, _ in robot_specs]
     n              = len(all_limbs_flat)
 
+    # Noise parameters — set to 0.0 to use ground truth, increase to stress-test
+    sigma_pos     = 0.1   # metres
+    sigma_theta   = 0.1   # radians
+    sigma_encoder = 0.01   # radians
+
     # One TopologyDiscovery instance per limb.
     # cost_thr and cov_thr are initial guesses — tune using the diagnostics
     # printed to console each control step.
     discoveries = [
         TopologyDiscovery(
             limb_id=i, limbs=all_limbs_flat,
-            sigma_gps_pos=0.001,
-            sigma_gps_theta=0.005,
+            sigma_gps_pos=sigma_pos,
+            sigma_gps_theta=sigma_theta,
+            sigma_encoder=sigma_encoder,
             n_sigma_search=5.0,
             K=5,
             TTL_max=15,
-            T_max=15,
-            cost_thr=0.5,       # per-observation — tune from diagnostics
+            T_max=20,
+            cost_thr=3.0,       # per-observation — tune from diagnostics
             cov_thr=0.01,
             reject_thr=5.0,     # per-observation — incorrect pairs will be >> this
             K_stale=3,
@@ -179,6 +198,9 @@ def main():
             for i in range(n)
         }
         encoder_angles = {i: float(all_qpos_flat[i]) for i in range(n)}
+        gps_joint_poses, encoder_angles = apply_measurement_noise(
+            gps_joint_poses, encoder_angles, sigma_pos, sigma_theta, sigma_encoder
+        )
 
         for disc in discoveries:
             disc.update(gps_joint_poses, encoder_angles)
@@ -191,7 +213,7 @@ def main():
                 for cid, d in diag.items():
                     print(f"  {disc.limb_id}→{cid}  "
                           f"cost/obs={d['cost_per_obs']:.3f}  cov={d['cov_trace']:.5f}  "
-                          f"n={d['n_obs']}  hi={d['consecutive_high_cost']}  [{d['status']}]")
+                          f"n={d['n_obs']}  hi={d['consecutive_high_cost']}  [{d['status']}]  est={d["cj_estimate"]}")
         print(f"  root={identify_root(discoveries)}")
 
         _draw_status()
