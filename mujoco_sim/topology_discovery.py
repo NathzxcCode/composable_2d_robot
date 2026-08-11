@@ -246,10 +246,11 @@ class TopologyDiscovery:
         """
         return {
             cid: {
-                "cost":      pair.last_cost,
-                "cov_trace": pair.last_cov_trace,
-                "status":    pair.status.value,
-                "n_obs":     len(pair.observations),
+                "cost":        pair.last_cost,
+                "cov_trace":   pair.last_cov_trace,
+                "status":      pair.status.value,
+                "n_obs":       len(pair.observations),
+                "cj_estimate": pair.cj_estimate
             }
             for cid, pair in self._persistence.items()
             if pair.status in (CandidateStatus.ACTIVE, CandidateStatus.CONFIRMED)
