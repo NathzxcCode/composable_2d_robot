@@ -99,6 +99,7 @@ class TopologyDiscovery:
 
         self.sigma_gps_pos   = sigma_gps_pos
         self.sigma_gps_theta = sigma_gps_theta
+        self.sigma_encoder   = sigma_encoder
         self.search_radius   = limb_base_radius + (n_sigma_search * sigma_gps_pos)
 
         self.K          = K

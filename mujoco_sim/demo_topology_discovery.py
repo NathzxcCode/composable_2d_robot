@@ -103,8 +103,8 @@ def main():
     n              = len(all_limbs_flat)
 
     # Noise parameters — set to 0.0 to use ground truth, increase to stress-test
-    sigma_pos     = 0.1   # metres
-    sigma_theta   = 0.1   # radians
+    sigma_pos     = 0.01   # metres
+    sigma_theta   = 0.01   # radians
     sigma_encoder = 0.01   # radians
 
     # One TopologyDiscovery instance per limb.
