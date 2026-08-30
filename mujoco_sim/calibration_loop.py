@@ -9,7 +9,7 @@ sys.path.append(root_path)
 from gtsam_examples.gtsam_factors import make_calib_kinematics_factor, make_fixed_kinematics_factor
 from gtsam_gbp import GBPOptimizer, GBPParams
 
-RIGID_KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05,  0.05,  1e-4]))
+RIGID_KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4,  1e-4,  1e-4]))
 CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([10.0, 10.0, 0.001]))
 # RIGID_KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5,  0.5,  1e-4]))
 # CALIB_NOISE        = gtsam.noiseModel.Diagonal.Sigmas(np.array([10.0, 10.0, 0.001]))
@@ -47,7 +47,7 @@ class FactorGraph():
         self._slot_range = {}
         self._slot_anchor = {}
 
-        self.CALIB_KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05,  0.05,  sigma_encoder])) # rotation dependant on encoder accuracy
+        self.CALIB_KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4,  1e-4,  sigma_encoder])) # rotation dependant on encoder accuracy
         self.ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, sigma_encoder])) # rotation dependant on encoder accuracy
         self.SENSOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([sigma_range])) # dependant on range sensing noise
         # self.CALIB_KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5,  0.5,  1e-4]))
@@ -160,7 +160,7 @@ class FactorGraph():
             return
         optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph, self.values, self.params)
         self.values = optimizer.optimize()
-        print(self.values.atPose2(CJ(1)), self.values.atPose2(CJ(2)))
+        # print(self.values.atPose2(CJ(1)), self.values.atPose2(CJ(2)))
 
     def gbp_solve(self, n_outer=5, n_inner=10, damping=0.0):
         if self.values.size() == 0:

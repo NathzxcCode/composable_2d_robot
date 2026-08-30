@@ -74,21 +74,6 @@ def figure8_target(t, cx, cy, rx, ry, period, angle_deg=45.0):
         cy + sin_r * x + cos_r * y,
     ])
 
-def apply_measurement_noise(gps_joint_poses, encoder_angles, sigma_pos, sigma_theta, sigma_encoder):
-    noisy_poses = {
-        i: gtsam.Pose2(
-            p.x()     + np.random.normal(0, sigma_pos),
-            p.y()     + np.random.normal(0, sigma_pos),
-            p.theta() + np.random.normal(0, sigma_theta),
-        )
-        for i, p in gps_joint_poses.items()
-    }
-    noisy_encoders = {
-        i: a + np.random.normal(0, sigma_encoder)
-        for i, a in encoder_angles.items()
-    }
-    return noisy_poses, noisy_encoders
-
 def main():
     pi = np.pi
 
@@ -151,17 +136,19 @@ def main():
 
     FG_UPDATE_INTERVAL = 0.5
     limb_lengths = [l.length for l in limbs]
-    true_calibrations = [[round(limbs[i].length-limbs[i+1].attach_pos[0],2),limbs[i+1].attach_pos[1]] for i in range(n-1)]
+    true_calibrations = [[round(limbs[i+1].attach_pos[0]-limbs[i].length,2),limbs[i+1].attach_pos[1]] for i in range(n-1)]
 
-    Sigma_range = [0.001, 0.01, 0.05]
-    Sigma_encoder = [0.0009, 0.009, 0.017]
-    Window_size = [5, 10, 15, 20]
+    Sigma_range = [0.001]#, 0.01, 0.05]
+    Sigma_encoder = [0.0009]#, 0.009, 0.017]
+    Window_size = [10]
+    Movement_pattern = [(-pi/2, pi/2),(-pi/2, 0),(-pi/4, pi/4),(-pi/8,pi/8),(-pi*3/8,-pi/8)]
     states = []
     rows = []
     for window_size in Window_size:
         for sigma_range in Sigma_range:
             for sigma_encoder in Sigma_encoder:
-                states.append((sigma_range, sigma_encoder, window_size))
+                for movement in Movement_pattern:
+                    states.append((sigma_range, sigma_encoder, window_size, movement))
 
     current_state = states.pop()
     State = {
@@ -180,7 +167,7 @@ def main():
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         if State["calibs_collected"] >= State["calibs_needed"]:
             if len(State["states"]) == 0:
-                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "results_calibration_1.csv")
+                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "results_calibration_3.csv")
                 df = pd.DataFrame(rows)
                 df.to_csv(OUTPUT_CSV, index=False)
                 print(f"[INFO] Saved {len(rows)} rows to {OUTPUT_CSV}")
@@ -193,7 +180,8 @@ def main():
             print("changing state: ", next_state)
 
         fg = State["fg"]
-        sigma_range, sigma_encoder, window_size = State["current_state"]
+        sigma_range, sigma_encoder, window_size, movement = State["current_state"]
+
         robot_data["joint_angles"] = [np.random.normal(angle, sigma_encoder) for angle in qpos]
         robot_data["sensor_distances"] = [
             np.random.normal(np.linalg.norm(spos[i] - spos[i + 1]), sigma_range) for i in range(len(spos) - 1)
@@ -214,6 +202,7 @@ def main():
                 # only save calibrations where the sliding window is full, for fainess
                 if fg.t >= fg.window_size:
                     rows.append({
+                        "calib_id": i,
                         "sigma_range":   sigma_range,
                         "sigma_encoder": sigma_encoder,
                         "window_size":   window_size,
@@ -221,6 +210,12 @@ def main():
                         "est_cj_y":      c["mean"][1],
                         "cj_x":          true_calibrations[i][0],
                         "cj_y":          true_calibrations[i][1],
+                        "cov_00":        c["cov_xy"][0][0],
+                        "cov_01":        c["cov_xy"][0][1],
+                        "cov_10":        c["cov_xy"][1][0],
+                        "cov_11":        c["cov_xy"][1][1],
+                        "movement_low":  movement[0],
+                        "movement_high": movement[1]
                             })
 
             print(fg.t)
@@ -231,7 +226,7 @@ def main():
         # Random joint motion
         for i in range(n):
             if abs(qpos[i] - targets[i]) < threshold:
-                targets[i] = np.random.uniform(-limbs[i].joint_range, limbs[i].joint_range)
+                targets[i] = np.random.uniform(movement[0], movement[1])
         actions = np.array(targets)
         calibrations = [_to_3d_calib(c) for c in raw_calibs]
 
