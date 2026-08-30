@@ -1,12 +1,8 @@
 import numpy as np
-# import matplotlib.pyplot as plt
-# import matplotlib.patches as mpatches
 import gtsam
-import gc
 import time
 import sys
 import os
-import multiprocessing
 import pandas as pd
 
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
