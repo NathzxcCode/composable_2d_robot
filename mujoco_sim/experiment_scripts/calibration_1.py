@@ -158,17 +158,18 @@ def main():
     Window_size = [5, 10, 15, 20]
     states = []
     rows = []
-    for sigma_range in Sigma_range:
-        for sigma_encoder in Sigma_encoder:
-            states.append((sigma_range, sigma_encoder))
+    for window_size in Window_size:
+        for sigma_range in Sigma_range:
+            for sigma_encoder in Sigma_encoder:
+                states.append((sigma_range, sigma_encoder, window_size))
 
     current_state = states.pop()
     State = {
         "states": states,
         "current_state": current_state,
-        "fg": FactorGraph(),
-        "end_time" : time.time() + 5,
-        "duration" : 5
+        "fg": FactorGraph(sigma_range=current_state[0], sigma_encoder=current_state[1], window_size=current_state[2]),
+        "calibs_collected" : 0,
+        "calibs_needed" : 5
     }
 
     robot_data = {
@@ -177,7 +178,7 @@ def main():
     }
 
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
-        if State["end_time"] <= time.time():
+        if State["calibs_collected"] >= State["calibs_needed"]:
             if len(State["states"]) == 0:
                 OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "results_calibration_1.csv")
                 df = pd.DataFrame(rows)
@@ -187,49 +188,52 @@ def main():
                 return
             next_state = State["states"].pop()
             State["current_state"] = next_state
-            State["fg"] = FactorGraph()
-            State["end_time"] = time.time() + State["duration"]
+            State["fg"] = FactorGraph(sigma_range=next_state[0], sigma_encoder=next_state[1], window_size=next_state[2])
+            State["calibs_collected"] = 0
             print("changing state: ", next_state)
 
         fg = State["fg"]
-        sigma_range, sigma_encoder = State["current_state"]
+        sigma_range, sigma_encoder, window_size = State["current_state"]
         robot_data["joint_angles"] = [np.random.normal(angle, sigma_encoder) for angle in qpos]
         robot_data["sensor_distances"] = [
             np.random.normal(np.linalg.norm(spos[i] - spos[i + 1]), sigma_range) for i in range(len(spos) - 1)
         ]
 
+        raw_calibs = fg.extract_calibrations()
+
+        # operate calibration after small delays to give robot time to move and be in a different pose
         if (t - robot_data["last_fg_update_time"]) >= FG_UPDATE_INTERVAL:
             fg.update_factor_graph(robot_data)
-            fg.gbp_solve(n_outer=8, n_inner=8)
+            fg.gbp_solve(n_outer=2, n_inner=15)
+            # fg.centralised_solve()
             robot_data["last_fg_update_time"] = t
 
-        # Build per-link calibration offsets for the IK FK model.
-        # extract_calibrations()[k] = CJ(k+1) = offset at the end of link k.
-        # The last link has no calibration so its entry remains (0, 0).
-        raw_calibs = fg.extract_calibrations()
-        calibrations = [_to_3d_calib(c) for c in raw_calibs]
-        calib_offsets = [(0.0, 0.0)] * len(limbs)
-        for i, c in enumerate(raw_calibs):
-            calib_offsets[i] = tuple(c["mean"])
+            raw_calibs = fg.extract_calibrations()
+            
+            for i, c in enumerate(raw_calibs):
+                # only save calibrations where the sliding window is full, for fainess
+                if fg.t >= fg.window_size:
+                    rows.append({
+                        "sigma_range":   sigma_range,
+                        "sigma_encoder": sigma_encoder,
+                        "window_size":   window_size,
+                        "est_cj_x":      c["mean"][0],
+                        "est_cj_y":      c["mean"][1],
+                        "cj_x":          true_calibrations[i][0],
+                        "cj_y":          true_calibrations[i][1],
+                            })
 
-            rows.append({
-                "sigma_range":   sigma_range,
-                "sigma_encoder": sigma_encoder,
-                # "window_size":   window_size,
-                "est_cj_x":      c["mean"][0],
-                "est_cj_y":      c["mean"][1],
-                "cj_x":          true_calibrations[i][0],
-                "cj_y":          true_calibrations[i][1],
-            })
-
-        # target = figure8_target(t, cx=0.3, cy=0.1, rx=0.15, ry=0.2, period=10.0)
-        # actions = ik_step(qpos, limb_lengths, target, calib_offsets=calib_offsets)
-
+            print(fg.t)
+            # increment state counter every time we record a calibration with a full observation sliding window 
+            if fg.t >= fg.window_size:
+                State["calibs_collected"] += 1
+            
         # Random joint motion
         for i in range(n):
             if abs(qpos[i] - targets[i]) < threshold:
                 targets[i] = np.random.uniform(-limbs[i].joint_range, limbs[i].joint_range)
         actions = np.array(targets)
+        calibrations = [_to_3d_calib(c) for c in raw_calibs]
 
         return actions, calibrations
 

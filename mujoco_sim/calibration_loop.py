@@ -9,11 +9,10 @@ sys.path.append(root_path)
 from gtsam_examples.gtsam_factors import make_calib_kinematics_factor, make_fixed_kinematics_factor
 from gtsam_gbp import GBPOptimizer, GBPParams
 
-KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5,  0.5,  1e-4]))
-ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 0.001]))
-CALIB_NOISE        = gtsam.noiseModel.Diagonal.Sigmas(np.array([10.0, 10.0, 0.001]))
-SENSOR_CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.1, 0.001]))
-SENSOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5 ]))
+RIGID_KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05,  0.05,  1e-4]))
+CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([10.0, 10.0, 0.001]))
+# RIGID_KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5,  0.5,  1e-4]))
+# CALIB_NOISE        = gtsam.noiseModel.Diagonal.Sigmas(np.array([10.0, 10.0, 0.001]))
 
 def J(joint_id, t): # joint
     index = (joint_id * 10000) + t
@@ -37,7 +36,7 @@ def CS(sensor_id): # sensor calibration
 
 
 class FactorGraph():
-    def __init__(self, window_size=10):
+    def __init__(self, sigma_range=0.001, sigma_encoder=0.0009, window_size=10):
         self.graph = gtsam.NonlinearFactorGraph()
         self.values = gtsam.Values()
         self.params = gtsam.LevenbergMarquardtParams()
@@ -45,89 +44,116 @@ class FactorGraph():
         self.num_limbs = 0
         self.window_size = window_size
         self._slot_inter_kin = {}
-        self._slot_range     = {}
+        self._slot_range = {}
+        self._slot_anchor = {}
+
+        self.CALIB_KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.05,  0.05,  sigma_encoder])) # rotation dependant on encoder accuracy
+        self.ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, sigma_encoder])) # rotation dependant on encoder accuracy
+        self.SENSOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([sigma_range])) # dependant on range sensing noise
+        # self.CALIB_KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5,  0.5,  1e-4]))
+        # self.ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 0.001]))
+        # self.SENSOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.5 ]))
 
     def update_factor_graph(self, data) -> None:
-
-        if self.t > 100:
-            return
-        
-        limbs = data["limbs"]
-        joint_angles = data["joint_angles"]
+        limbs            = data["limbs"]
+        joint_angles     = data["joint_angles"]
         sensor_distances = data["sensor_distances"]
-        self.num_limbs = len(limbs)
+        self.num_limbs   = len(limbs)
 
+        slot      = self.t % self.window_size
+        replacing = self.t >= self.window_size
 
-
-        # initialise limb poses
-        # initialise sensor poses per limb
-        # connect sensors to limbs
-        # J(i) represents the PIVOT FRAME of joint i in world coordinates.
-        # J(0) is at the base pivot = origin, so we start the chain there.
+        # Forward kinematics: initial pose estimates for this step
+        joint_poses, sensor_poses = [], []
         current_parent_pose = gtsam.Pose2()
         for i, limb in enumerate(limbs):
-            angle = joint_angles[i]
-            
-            # 1. Build the Static Attachment Transform (Parent Pivot -> Child Pivot)
-            # For limb 0: its pivot IS the base origin, so T_attach = identity.
-            # For limb i>0: walk the NOMINAL (assumed) parent length to reach the child pivot.
-            # We use limb.length (nominal model assumption), NOT limb.attach_pos (true value).
-            # The discrepancy between nominal and true is what CJ(i) is calibrated to absorb.
-            # X-Z plane mapping: MuJoCo X -> GTSAM X, MuJoCo Z -> GTSAM Y.
-            if i == 0:
-                T_attach = gtsam.Pose2(0.0, 0.0, 0.0)
-            else:
-                parent_limb = limbs[i - 1]
-                T_attach = gtsam.Pose2(parent_limb.length, 0.0, 0.0)
-            
-            # 2. Build the Dynamic Joint Rotation Transform
-            T_joint = gtsam.Pose2(0.0, 0.0, angle)
-            
-            # 3. Calculate Global Pivot Pose of Joint i
-            # Global_J(i) = Global_J(i-1) * T_Attach_Nominal * T_Joint_Rotation
-            global_limb_pose = current_parent_pose.compose(T_attach).compose(T_joint)
-            
-            # 4. Calculate Global Pose of Sensor i
-            x_sensor = limb.sensor_pos[0]
-            y_sensor = limb.sensor_pos[1]  # X-Y plane: GTSAM Y maps to MuJoCo world Y
-            theta_sensor = limb.sensor_euler[2]
-            
-            T_sensor_offset = gtsam.Pose2(x_sensor, y_sensor, theta_sensor)
-            
-            # Global_Sensor = Global_Limb * T_Sensor_Offset
-            global_sensor_pose = global_limb_pose.compose(T_sensor_offset)
-            
-            # Initialise variables for joint and sensor pose estimates
-            self.values.insert(J(i, self.t), global_limb_pose)
-            self.values.insert(S(i, self.t), global_sensor_pose)
-            # if not self.values.exists(CS(i)):
-            #     self.values.insert(CS(i), gtsam.Pose2(0.0, 0.0, 0.0))
-            #     self.graph.add(gtsam.PriorFactorPose2(CS(i), gtsam.Pose2(0.0, 0.0, 0.0), SENSOR_CALIB_NOISE))
-            
-            # 5. Move the Chain Forward
-            current_parent_pose = global_limb_pose
+            angle    = joint_angles[i]
+            T_attach = (gtsam.Pose2(0.0, 0.0, 0.0) if i == 0
+                        else gtsam.Pose2(limbs[i - 1].length, 0.0, 0.0))
+            # compose estimated next joint pose based on parent joint
+            j_pose = current_parent_pose.compose(T_attach).compose(gtsam.Pose2(0.0, 0.0, angle))
+            # estimate sensor pose based on next joint
+            s_pose = j_pose.compose(
+                gtsam.Pose2(limb.sensor_pos[0], limb.sensor_pos[1], limb.sensor_euler[2]))
+            joint_poses.append(j_pose)
+            sensor_poses.append(s_pose)
+            current_parent_pose = j_pose
 
-            # connect sensor to limb with kinematics factor
-            # self.graph.add(make_calib_kinematics_factor(J(i, self.t), CS(i), S(i, self.t), limb.sensor_pos[0], 0, KINEMATIC_NOISE)) # sensor connected to body
-            self.graph.add(make_fixed_kinematics_factor(J(i, self.t), S(i, self.t), limb.sensor_pos[0], 0, KINEMATIC_NOISE)) # sensor connected to body
-
-            # setup connection factors between limbs
-            # add anchor prior on base limb
-            if i == 0:
-                # Pin the base pivot to the world origin (0,0). Theta is left free
-                # (large sigma) so the measured joint angle can be expressed naturally.
-                self.graph.add(gtsam.PriorFactorPose2(J(i, self.t), gtsam.Pose2(0.0, 0.0, angle), ANCHOR_NOISE))
-            # add kinematics between joint i-1 and joint i
+        # Variables 
+        for i in range(self.num_limbs):
+            if replacing:
+                self.values.update(J(i, slot), joint_poses[i])
+                self.values.update(S(i, slot), sensor_poses[i])
             else:
-                if not self.values.exists(CJ(i)):
-                    self.values.insert(CJ(i), gtsam.Pose2(0.0, 0.0, 0.0))
-                    self.graph.add(gtsam.PriorFactorPose2(CJ(i), gtsam.Pose2(0.0, 0.0, 0.0), CALIB_NOISE))
-                # Use the NOMINAL (assumed) parent limb length, not the true attach_pos.
-                # The calibration CJ(i) will absorb the difference.
-                self.graph.add(make_calib_kinematics_factor(J(i-1, self.t), CJ(i), J(i, self.t), limbs[i-1].length, angle, KINEMATIC_NOISE))
-                self.graph.add(gtsam.RangeFactorPose2(S(i-1, self.t), S(i, self.t), sensor_distances[i-1], SENSOR_NOISE))
+                self.values.insert(J(i, slot), joint_poses[i])
+                self.values.insert(S(i, slot), sensor_poses[i])
+                # Calibration variables are presistant insert and prior once only
+                if i > 0 and not self.values.exists(CJ(i)):
+                    self.values.insert(CJ(i), gtsam.Pose2())
+                    self.graph.add(gtsam.PriorFactorPose2(
+                        CJ(i), gtsam.Pose2(), CALIB_NOISE))
+
+        # Factors 
+        if replacing:
+            # joint-joint calibration kinematics and joint anchor contain observations measurements and update
+            # sensor kinematics, calibration priors remains constant
+            for graph_idx, i in self._slot_inter_kin[slot]:
+                self.graph.replace(
+                    graph_idx,
+                    make_calib_kinematics_factor(
+                        J(i - 1, slot), CJ(i), J(i, slot),
+                        limbs[i - 1].length, joint_angles[i], self.CALIB_KINEMATIC_NOISE))
+
+            for graph_idx, i in self._slot_range[slot]:
+                self.graph.replace(
+                    graph_idx,
+                    gtsam.RangeFactorPose2(
+                        S(i - 1, slot), S(i, slot),
+                        sensor_distances[i - 1], self.SENSOR_NOISE))
+
+            for graph_idx in self._slot_anchor[slot]:
+                self.graph.replace(
+                    graph_idx,
+                    gtsam.PriorFactorPose2(
+                        J(0, slot), gtsam.Pose2(0.0, 0.0, joint_angles[0]), self.ANCHOR_NOISE))
+        
+        else:
+            # add all factors and record indices of the observation dependant ones
+            inter_kin_indices, range_indices, anchor_indices = [], [], []
+
+            for i, limb in enumerate(limbs):
+                # Sensor-to-body kinematics — sensor_pos is constant; never replaced.
+                self.graph.add(make_fixed_kinematics_factor(
+                    J(i, slot), S(i, slot),
+                    limb.sensor_pos[0], 0, RIGID_KINEMATIC_NOISE))
+
+                if i == 0:
+                    # Anchor prior — measurement always (0,0,0); never replaced.
+                    anchor_idx = self.graph.size()
+                    self.graph.add(gtsam.PriorFactorPose2(
+                        J(0, slot), gtsam.Pose2(0.0, 0.0, joint_angles[0]), self.ANCHOR_NOISE))
+                    anchor_indices.append((anchor_idx))
+                else:
+                    # joint-joint calibration kinematics, save index for replacing later
+                    inter_kin_idx = self.graph.size()
+                    self.graph.add(make_calib_kinematics_factor(
+                        J(i - 1, slot), CJ(i), J(i, slot),
+                        limbs[i - 1].length, joint_angles[i], self.CALIB_KINEMATIC_NOISE))
+                    inter_kin_indices.append((inter_kin_idx, i))
+
+                    # Range factor between sensors, save index for later
+                    range_idx = self.graph.size()
+                    self.graph.add(gtsam.RangeFactorPose2(
+                        S(i - 1, slot), S(i, slot),
+                        sensor_distances[i - 1], self.SENSOR_NOISE))
+                    range_indices.append((range_idx, i))
+
+            self._slot_inter_kin[slot] = inter_kin_indices
+            self._slot_range[slot] = range_indices
+            self._slot_anchor[slot] = anchor_indices
 
         self.t += 1
+
 
     def centralised_solve(self):
         if self.values.size() == 0:
