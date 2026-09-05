@@ -134,7 +134,7 @@ def main():
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         if State["calibs_collected"] >= State["calibs_needed"]:
             if len(State["states"]) == 0:
-                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), f"results_calibration_2_{n}_limbs.csv")
+                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), f"calib_results/results_calibration_2_{n}_limbs.csv")
                 df = pd.DataFrame(rows)
                 df.to_csv(OUTPUT_CSV, index=False)
                 print(f"[INFO] Saved {len(rows)} rows to {OUTPUT_CSV}")
@@ -159,35 +159,34 @@ def main():
         # operate calibration after small delays to give robot time to move and be in a different pose
         if (t - robot_data["last_fg_update_time"]) >= FG_UPDATE_INTERVAL:
             fg.update_factor_graph(robot_data)
-            if fg.t >= fg.window_size:
-                fg.gbp_solve(n_outer=opt_iterations[0], n_inner=opt_iterations[0])
-                # fg.centralised_solve()
-                robot_data["last_fg_update_time"] = t
+            fg.gbp_solve(n_outer=opt_iterations[0], n_inner=opt_iterations[0])
+            # fg.centralised_solve()
+            robot_data["last_fg_update_time"] = t
 
-                raw_calibs = fg.extract_calibrations()
-                
-                for i, c in enumerate(raw_calibs):
-                    # only save calibrations where the sliding window is full, for fainess
-                    if fg.t >= fg.window_size:
-                        rows.append({
-                            "calib_id": i,
-                            "sigma_range":   sigma_range,
-                            "sigma_encoder": sigma_encoder,
-                            "window_size":   window_size,
-                            "est_cj_x":      c["mean"][0],
-                            "est_cj_y":      c["mean"][1],
-                            "cj_x":          true_calibrations[i][0],
-                            "cj_y":          true_calibrations[i][1],
-                            "cov_00":        c["cov_xy"][0][0],
-                            "cov_01":        c["cov_xy"][0][1],
-                            "cov_10":        c["cov_xy"][1][0],
-                            "cov_11":        c["cov_xy"][1][1],
-                            "movement_low":  movement[0],
-                            "movement_high": movement[1],
-                            "n_outer":       opt_iterations[0],
-                            "n_inner":       opt_iterations[1],
-                            "n_limbs":       n
-                                })
+            raw_calibs = fg.extract_calibrations()
+            
+            for i, c in enumerate(raw_calibs):
+                # only save calibrations where the sliding window is full, for fainess
+                if fg.t >= fg.window_size:
+                    rows.append({
+                        "calib_id": i,
+                        "sigma_range":   sigma_range,
+                        "sigma_encoder": sigma_encoder,
+                        "window_size":   window_size,
+                        "est_cj_x":      c["mean"][0],
+                        "est_cj_y":      c["mean"][1],
+                        "cj_x":          true_calibrations[i][0],
+                        "cj_y":          true_calibrations[i][1],
+                        "cov_00":        c["cov_xy"][0][0],
+                        "cov_01":        c["cov_xy"][0][1],
+                        "cov_10":        c["cov_xy"][1][0],
+                        "cov_11":        c["cov_xy"][1][1],
+                        "movement_low":  movement[0],
+                        "movement_high": movement[1],
+                        "n_outer":       opt_iterations[0],
+                        "n_inner":       opt_iterations[1],
+                        "n_limbs":       n
+                            })
 
                 print(fg.t)
                 # increment state counter every time we record a calibration with a full observation sliding window 

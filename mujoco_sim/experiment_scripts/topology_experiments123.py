@@ -120,7 +120,7 @@ def main():
     Sigma_pos     = [0.001, 0.01, 0.05]   # metres
     Sigma_theta   = [0.0017, 0.017, 0.09]   # radians
     Sigma_encoder = [0.0009, 0.009, 0.017]   # radians
-    K = [5, 10, 15, 20]
+    K = [5,10,15,20]
     states = []
     for k in K:
         for sigma_pos, sigma_theta in zip(Sigma_pos, Sigma_theta):
@@ -140,8 +140,8 @@ def main():
                 K=state[3],
                 TTL_max=15,
                 T_max=state[3],
-                cost_thr=100000,       
-                cov_thr=100000,
+                cost_thr=0,       
+                cov_thr=0,
                 reject_thr=0,     
                 K_stale=0,
             )
@@ -153,8 +153,8 @@ def main():
         "states" : states,
         "current_state": current_state,
         "discoveries" : make_new_discoveries(current_state),
-        "end_time" : time.time() + 5,
-        "duration" : 5
+        "end_time" : time.time() + 25,
+        "duration" : 25
     }
 
     # Random motion state — each joint independently seeks a new random target
@@ -165,7 +165,7 @@ def main():
     def joint_controller(all_states, t):
         if State["end_time"] <= time.time():
             if len(State["states"]) == 0:
-                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "results_topology_discovery_123.csv")
+                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "topo_results/results_topology_discovery_123.csv")
                 df = pd.DataFrame(rows)
                 df.to_csv(OUTPUT_CSV, index=False)
                 print(f"[INFO] Saved {len(rows)} rows to {OUTPUT_CSV}")
@@ -202,16 +202,11 @@ def main():
         )
 
         for disc in State["discoveries"]:
-            disc.update(gps_joint_poses, encoder_angles)
-
-        # Diagnostics — observe cost and cov_trace values to tune thresholds
-        for disc in State["discoveries"]:
-            diag = disc.get_diagnostics()
+            diag = disc.update(gps_joint_poses, encoder_angles, get_failed_diagnostics=True)
             if diag:
                 for cid, d in diag.items():
                     est = d["cj_estimate"]
                     connected = (disc.limb_id,cid) in {(0,1),(1,2),(3,4),(4,5),(6,7),(7,8)}
-                    current_state = State["current_state"]
                     rows.append({
                         "sigma_pos":     sigma_pos,
                         "sigma_theta":   sigma_theta,
@@ -225,7 +220,31 @@ def main():
                         "cj_x":          est.x()     if est is not None else float("nan"),
                         "cj_y":          est.y()     if est is not None else float("nan"),
                         "cj_theta":      est.theta() if est is not None else float("nan"),
+                        "n_obs":         d["n_obs"]
                     })
+
+        # Diagnostics — observe cost and cov_trace values to tune thresholds
+        # for disc in State["discoveries"]:
+        #     diag = disc.get_diagnostics()
+        #     if diag:
+        #         for cid, d in diag.items():
+        #             est = d["cj_estimate"]
+        #             connected = (disc.limb_id,cid) in {(0,1),(1,2),(3,4),(4,5),(6,7),(7,8)}
+        #             current_state = State["current_state"]
+        #             rows.append({
+        #                 "sigma_pos":     sigma_pos,
+        #                 "sigma_theta":   sigma_theta,
+        #                 "sigma_encoder": sigma_encoder,
+        #                 "k":             k,
+        #                 "connected":     connected,
+        #                 "limb_id":       disc.limb_id,
+        #                 "child_id":      cid,
+        #                 "cost_per_obs":  d["cost_per_obs"],
+        #                 "cov_trace":     d["cov_trace"],
+        #                 "cj_x":          est.x()     if est is not None else float("nan"),
+        #                 "cj_y":          est.y()     if est is not None else float("nan"),
+        #                 "cj_theta":      est.theta() if est is not None else float("nan"),
+        #             })
                     
 
         # Random joint motion

@@ -180,7 +180,7 @@ def main():
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         if State["calibs_collected"] >= State["calibs_needed"]:
             if len(State["states"]) == 0:
-                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "results_calibration_1.csv")
+                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "calib_results/results_calibration_1_lm.csv")
                 df = pd.DataFrame(rows)
                 df.to_csv(OUTPUT_CSV, index=False)
                 print(f"[INFO] Saved {len(rows)} rows to {OUTPUT_CSV}")
@@ -204,8 +204,8 @@ def main():
         # operate calibration after small delays to give robot time to move and be in a different pose
         if (t - robot_data["last_fg_update_time"]) >= FG_UPDATE_INTERVAL:
             fg.update_factor_graph(robot_data)
-            fg.gbp_solve(n_outer=2, n_inner=15)
-            # fg.centralised_solve()
+            # fg.gbp_solve(n_outer=2, n_inner=15)
+            fg.centralised_solve()
             robot_data["last_fg_update_time"] = t
 
             raw_calibs = fg.extract_calibrations()

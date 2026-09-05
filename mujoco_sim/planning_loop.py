@@ -15,7 +15,7 @@ from gtsam_gbp import GBPOptimizer, GBPParams
 KINEMATIC_NOISE    = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.005, 0.005, 0.02]))
 ANCHOR_NOISE       = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.005, 0.005, 0.02]))
 LOOSE_ANCHOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.005, 0.005, 10.0]))
-GOAL_NOISE         = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.06, 0.06, 1000.0]))
+GOAL_NOISE         = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.6, 0.6, 1000.0]))
 
 
 # Keys encode robot_id * 100000 + limb_index * 1000 + timestep

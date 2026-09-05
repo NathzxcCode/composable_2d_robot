@@ -123,7 +123,7 @@ class TopologyDiscovery:
         self._persistence:        Dict[int, CandidatePair] = {}
         self._confirmed_children: Dict[int, Tuple]         = {}
 
-    def update(self, gps_joint_poses: dict, encoder_angles: dict) -> None:
+    def update(self, gps_joint_poses: dict, encoder_angles: dict, get_failed_diagnostics=False) -> None:
         """
         gps_joint_poses : {limb_id: Pose2(x, y, theta)} for all limbs in the scene
         encoder_angles  : {limb_id: float} MuJoCo qpos value per limb
@@ -135,6 +135,9 @@ class TopologyDiscovery:
             for other_id, J_b in gps_joint_poses.items()
             if other_id != self.limb_id and self._in_search_region(J_a, J_b)
         }
+
+        if get_failed_diagnostics:
+            diagnostics = {}
 
         for cid in candidates_this_step:
             if cid not in self._persistence:
@@ -165,7 +168,17 @@ class TopologyDiscovery:
                     self._confirmed_children[cid] = (cj_est, cj_cov)
                 else:
                     # Failed: remove entirely so the next attempt starts with a clean slate
-                    print(f"failed candiate: {self.limb_id}->{cid} cost: {cost_per_obs} cov: {cov_trace}", )
+                    # print(f"failed candiate: {self.limb_id}->{cid} cost: {cost_per_obs} cov: {cov_trace}", )
+                    if get_failed_diagnostics:
+                        diagnostics[cid] = {
+                            "cost_per_obs":          pair.last_cost_per_obs,
+                            "cov_trace":             pair.last_cov_trace,
+                            "status":                pair.status.value,
+                            "n_obs":                 self.K,
+                            "consecutive_high_cost": pair.consecutive_high_cost,
+                            "cj_estimate":           pair.cj_estimate,
+                        }
+
                     del self._persistence[cid]
 
             elif pair.status == CandidateStatus.CONFIRMED:
@@ -194,6 +207,9 @@ class TopologyDiscovery:
                 if self._persistence[cid].absence_count > self.TTL_max:
                     self._confirmed_children.pop(cid, None)
                     del self._persistence[cid]
+
+        if get_failed_diagnostics:
+            return diagnostics
 
     def _in_search_region(self, J_a: gtsam.Pose2, J_b: gtsam.Pose2) -> bool:
         """2D capsule test: is J_b within search_radius of J_a's body segment?"""

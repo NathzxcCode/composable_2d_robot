@@ -143,8 +143,8 @@ def main():
                 K=state[3],
                 TTL_max=15,
                 T_max=state[3],
-                cost_thr=100000,       
-                cov_thr=100000,
+                cost_thr=0,       
+                cov_thr=0,
                 reject_thr=0,     
                 K_stale=0,
             )
@@ -156,8 +156,8 @@ def main():
         "states" : states,
         "current_state": current_state,
         "discoveries" : make_new_discoveries(current_state),
-        "end_time" : time.time() + 5,
-        "duration" : 5
+        "end_time" : time.time() + 25,
+        "duration" : 25
     }
 
     # Random motion state — each joint independently seeks a new random target
@@ -168,7 +168,7 @@ def main():
     def joint_controller(all_states, t):
         if State["end_time"] <= time.time():
             if len(State["states"]) == 0:
-                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "results_topology_discovery_123.csv")
+                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "topo_results/results_topology_discovery_4.csv")
                 df = pd.DataFrame(rows)
                 df.to_csv(OUTPUT_CSV, index=False)
                 print(f"[INFO] Saved {len(rows)} rows to {OUTPUT_CSV}")
@@ -181,7 +181,7 @@ def main():
             print("changing state: ", next_state, State["discoveries"][0].sigma_encoder == next_state[2])
 
         # Get current state parameters
-        sigma_pos, sigma_theta, sigma_encoder, k = State["current_state"]
+        sigma_pos, sigma_theta, sigma_encoder, k, movement = State["current_state"]
 
         # Flatten per-robot states into global limb-indexed lists
         all_jpos, all_jrot, all_qpos_flat = [], [], []
@@ -205,16 +205,11 @@ def main():
         )
 
         for disc in State["discoveries"]:
-            disc.update(gps_joint_poses, encoder_angles)
-
-        # Diagnostics — observe cost and cov_trace values to tune thresholds
-        for disc in State["discoveries"]:
-            diag = disc.get_diagnostics()
+            diag = disc.update(gps_joint_poses, encoder_angles, get_failed_diagnostics=True)
             if diag:
                 for cid, d in diag.items():
                     est = d["cj_estimate"]
                     connected = (disc.limb_id,cid) in {(0,1),(1,2),(3,4),(4,5),(6,7),(7,8)}
-                    current_state = State["current_state"]
                     rows.append({
                         "sigma_pos":     sigma_pos,
                         "sigma_theta":   sigma_theta,
@@ -228,13 +223,14 @@ def main():
                         "cj_x":          est.x()     if est is not None else float("nan"),
                         "cj_y":          est.y()     if est is not None else float("nan"),
                         "cj_theta":      est.theta() if est is not None else float("nan"),
-                    })
-                    
+                        "movement_low":  movement[0],
+                        "movement_high": movement[1]
+                    })                    
 
         # Random joint motion
         for i in range(n):
             if abs(all_qpos_flat[i] - targets[i]) < threshold:
-                targets[i] = np.random.uniform(-all_limbs_flat[i].joint_range, all_limbs_flat[i].joint_range)
+                targets[i] = np.random.uniform(movement[0], movement[1])
         ctrl_flat = np.array(targets)
 
         # Split flat ctrl back into per-robot arrays

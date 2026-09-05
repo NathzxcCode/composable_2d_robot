@@ -140,7 +140,7 @@ def main():
 
     Sigma_range = [0.001]#, 0.01, 0.05]
     Sigma_encoder = [0.0009]#, 0.009, 0.017]
-    Window_size = [10]
+    Window_size = [20]
     Movement_pattern = [(-pi/2, pi/2),(-pi/2, 0),(-pi/4, pi/4),(-pi/8,pi/8),(-pi*3/8,-pi/8)]
     states = []
     rows = []
@@ -167,7 +167,7 @@ def main():
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         if State["calibs_collected"] >= State["calibs_needed"]:
             if len(State["states"]) == 0:
-                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "results_calibration_3.csv")
+                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "calib_results/results_calibration_3_20.csv")
                 df = pd.DataFrame(rows)
                 df.to_csv(OUTPUT_CSV, index=False)
                 print(f"[INFO] Saved {len(rows)} rows to {OUTPUT_CSV}")
