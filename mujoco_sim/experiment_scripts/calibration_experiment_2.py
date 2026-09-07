@@ -78,10 +78,11 @@ def main():
     pi = np.pi
 
     def generate_n_limbs(n):
+        y_off = [0.019, -0.019]
         limbs = [
             LimbSpec(
                 length=0.15, radius=0.02, density=500.0,
-                attach_pos=[0.14, 0.01, 0.0],
+                attach_pos=[0.13, y_off[i%2], 0.0],
                 attach_euler=[0.0, 0.0, 0.0],
                 joint_axis=[0.0, 0.0, 1.0],
                 joint_damping=0.4,
@@ -94,7 +95,7 @@ def main():
         return limbs
 
     # select number of limbs in the current setup
-    n = 20
+    n = 12
     limbs = generate_n_limbs(n)
     targets   = [0.0] * n
     threshold = 0.05
@@ -105,9 +106,9 @@ def main():
 
     Sigma_range = [0.001]#, 0.01, 0.05]
     Sigma_encoder = [0.0009]#, 0.009, 0.017]
-    Window_size = [10]
+    Window_size = [15]
     Movement_pattern = [(-pi/2, pi/2)]
-    Opt_iterations = [(2,5),(2,10),(2,15),(2,20)]
+    Opt_iterations = [(2,10,0),(2,20,0),(2,30,0.4)]
     states = []
     rows = []
     for window_size in Window_size:
@@ -123,7 +124,7 @@ def main():
         "current_state": current_state,
         "fg": FactorGraph(sigma_range=current_state[0], sigma_encoder=current_state[1], window_size=current_state[2]),
         "calibs_collected" : 0,
-        "calibs_needed" : 5
+        "calibs_needed" : 10
     }
 
     robot_data = {
@@ -159,7 +160,7 @@ def main():
         # operate calibration after small delays to give robot time to move and be in a different pose
         if (t - robot_data["last_fg_update_time"]) >= FG_UPDATE_INTERVAL:
             fg.update_factor_graph(robot_data)
-            fg.gbp_solve(n_outer=opt_iterations[0], n_inner=opt_iterations[0])
+            fg.gbp_solve(n_outer=opt_iterations[0], n_inner=opt_iterations[1], damping=opt_iterations[2])
             # fg.centralised_solve()
             robot_data["last_fg_update_time"] = t
 

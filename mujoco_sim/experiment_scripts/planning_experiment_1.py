@@ -59,36 +59,36 @@ def main():
             joint_centre=0.0,
             joint_range=np.pi / 2,
         ),
-        # LimbSpec(
-        #     length=0.15, radius=0.015, density=500.0,
-        #     attach_pos=[0.15, 0.0, 0.0],
-        #     attach_euler=[0.0, 0.0, 0.0],
-        #     joint_axis=[0.0, 0.0, 1.0],
-        #     joint_damping=0.4,
-        #     sensor_pos=[0.12, 0.0, 0.0],
-        #     joint_centre=0.0,
-        #     joint_range=np.pi / 2,
-        # ),
-        # LimbSpec(
-        #     length=0.15, radius=0.015, density=500.0,
-        #     attach_pos=[0.15, 0.0, 0.0],
-        #     attach_euler=[0.0, 0.0, 0.0],
-        #     joint_axis=[0.0, 0.0, 1.0],
-        #     joint_damping=0.4,
-        #     sensor_pos=[0.12, 0.0, 0.0],
-        #     joint_centre=0.0,
-        #     joint_range=np.pi / 2,
-        # ),
-        #  LimbSpec(
-        #     length=0.15, radius=0.015, density=500.0,
-        #     attach_pos=[0.15, 0.0, 0.0],
-        #     attach_euler=[0.0, 0.0, 0.0],
-        #     joint_axis=[0.0, 0.0, 1.0],
-        #     joint_damping=0.4,
-        #     sensor_pos=[0.12, 0.0, 0.0],
-        #     joint_centre=0.0,
-        #     joint_range=np.pi / 2,
-        # ),
+        LimbSpec(
+            length=0.15, radius=0.015, density=500.0,
+            attach_pos=[0.15, 0.0, 0.0],
+            attach_euler=[0.0, 0.0, 0.0],
+            joint_axis=[0.0, 0.0, 1.0],
+            joint_damping=0.4,
+            sensor_pos=[0.12, 0.0, 0.0],
+            joint_centre=0.0,
+            joint_range=np.pi / 2,
+        ),
+        LimbSpec(
+            length=0.15, radius=0.015, density=500.0,
+            attach_pos=[0.15, 0.0, 0.0],
+            attach_euler=[0.0, 0.0, 0.0],
+            joint_axis=[0.0, 0.0, 1.0],
+            joint_damping=0.4,
+            sensor_pos=[0.12, 0.0, 0.0],
+            joint_centre=0.0,
+            joint_range=np.pi / 2,
+        ),
+         LimbSpec(
+            length=0.15, radius=0.015, density=500.0,
+            attach_pos=[0.15, 0.0, 0.0],
+            attach_euler=[0.0, 0.0, 0.0],
+            joint_axis=[0.0, 0.0, 1.0],
+            joint_damping=0.4,
+            sensor_pos=[0.12, 0.0, 0.0],
+            joint_centre=0.0,
+            joint_range=np.pi / 2,
+        ),
         # LimbSpec(
         #     length=0.15, radius=0.015, density=500.0,
         #     attach_pos=[0.15, 0.0, 0.0],
@@ -111,24 +111,37 @@ def main():
         # ),
     ]
 
+    n = len(limbs)
     waypoints = [
             # [(0.2, 0.35), (0.15, 0.25), (0.0, 0.43)],   # robot 0
-            [(0.15, 0.25), (0.3, 0.43), (0.2, 0.35), (0.3, 0.35)]
+            [(0.6*(n*0.15), 0.6*(n*0.15))]
         ]
     goal_idx = [0]
     ARRIVAL_THR = 0.02
 
-    fg = PlanningGraph([limbs], [waypoints[0][0]], time_horizon=4, dt=[0.1, 0.2, 0.4], sigma_endpoint=5, sigma_joint=0.01)
+    save = {"is": 0,
+            "endpoints": [],
+            "n": n}
+
+    fg = PlanningGraph([limbs], [waypoints[0][0]], time_horizon=10, dt=[0.05]*9, sigma_endpoint=5, sigma_joint=1)
 
     plt.ion()
     fig, ax = plt.subplots(figsize=(6, 6))
-    _ROBOT_COLORS = ['tab:blue']
+    _ROBOT_COLORS = ['tab:orange']
 
-    def _draw_plan(ax):
+    def _draw_plan(ax, filepath, points=None, save=False):
         ax.cla()
         ax.set_aspect('equal')
         ax.grid(True)
-        ax.set_title('Planned horizon')
+        # ax.set_title('Planned horizon')
+        # ax.set_xlim(0.0, 0.55)
+        # ax.set_ylim(-0.2, 0.45)
+
+        if points:
+            pxs = [p[0] for p in points]
+            pys = [p[1] for p in points]
+            ax.plot(pxs, pys, color='black', linewidth=1.5, markersize=1, label='Trajectory', zorder=5)
+
         for r_id in range(len([limbs])):
             timesteps = fg.planned_positions(r_id)
             # print("timesteps ", timesteps)
@@ -141,6 +154,8 @@ def main():
                 ax.plot(xs, ys, '-o', color=color, alpha=alpha,
                         linewidth=1, markersize=4)
         plt.pause(0.001)
+        if save:
+            plt.savefig(filepath, dpi=150)# bbox_inches="tight"
 
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         # Build ground-truth [x, y, theta] per joint from MuJoCo state.
@@ -156,24 +171,32 @@ def main():
             for pos, rot in zip(joint_positions, joint_rotations)
         ])
         ctrl = fg.gbp_solve([(qpos, joint_poses)], goals=[target],
-                            n_inner=24, 
-                            n_outer=1, damping=0.5)[0]
+                            n_inner=60, 
+                            n_outer=1, damping=0)[0]
         # ctrl = fg.centralised_solve([(qpos, joint_poses)], goals=[target])[0]
-        print("ctrl ", ctrl)
+        # print("ctrl ", ctrl)
+
+        
 
         # if usign pre-set waypoints iterate them here when robot reaches a distance to the goal
         for r in range(1):
             timesteps = fg.planned_positions(r)
             if not timesteps:
+                print("continued")
                 continue
             ee = np.array(timesteps[0][-1])  # k=0 end effector (x, y)
+            save["endpoints"].append(ee)
             goal = np.array(target)
             # print(np.linalg.norm(ee - goal))
             if np.linalg.norm(ee - goal) < ARRIVAL_THR:
                 print("robot: ", r, "reached goal: ", waypoints[r][goal_idx[r]])
-                goal_idx[r] = (goal_idx[r] + 1) % len(waypoints[r])
+                if goal_idx[r] + 1 < len(waypoints[r]):
+                    goal_idx[r] = (goal_idx[r] + 1)
+                save["is"] = 1
 
-        _draw_plan(ax)
+        filepath = os.path.join(os.path.dirname(__file__), f"planning_results/results_planning_1_{save['n']}.png")
+        _draw_plan(ax, filepath, points=save["endpoints"], save=save["is"]==0)
+        save["is"] -= 1 
         return ctrl, []
 
     run_simulation(limbs, controller=controller, control_hz=10.0, trail_length=200)
