@@ -50,12 +50,12 @@ def _make_three_limbs_1():
             joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
             sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
         ),
-        LimbSpec(
-            length=0.15, radius=0.02, density=500.0,
-            attach_pos=[0.15, -0.01, 0.0], attach_euler=[0.0, 0.0, 0.0],
-            joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
-            sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
-        )
+        # LimbSpec(
+        #             length=0.15, radius=0.02, density=500.0,
+        #             attach_pos=[0.13, 0.0, 0.0], attach_euler=[0.0, 0.0, 0.0],
+        #             joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
+        #             sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
+        #         )
     ]
 def _make_three_limbs_2():
     pi = np.pi
@@ -72,12 +72,12 @@ def _make_three_limbs_2():
             joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
             sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
         ),
-        LimbSpec(
-            length=0.15, radius=0.02, density=500.0,
-            attach_pos=[0.15, -0.01, 0.0], attach_euler=[0.0, 0.0, 0.0],
-            joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
-            sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
-        )
+        # LimbSpec(
+        #             length=0.15, radius=0.02, density=500.0,
+        #             attach_pos=[0.13, 0.0, 0.0], attach_euler=[0.0, 0.0, 0.0],
+        #             joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
+        #             sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
+        #         )
     ]
 def _make_three_limbs_3():
     pi = np.pi
@@ -94,12 +94,12 @@ def _make_three_limbs_3():
             joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
             sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
         ),
-        LimbSpec(
-            length=0.15, radius=0.02, density=500.0,
-            attach_pos=[0.15, -0.01, 0.0], attach_euler=[0.0, 0.0, 0.0],
-            joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
-            sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
-        )
+        # LimbSpec(
+        #             length=0.15, radius=0.02, density=500.0,
+        #             attach_pos=[0.13, 0.0, 0.0], attach_euler=[0.0, 0.0, 0.0],
+        #             joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
+        #             sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=pi / 2,
+        #         )
     ]
 
 
@@ -121,8 +121,15 @@ def main():
     Sigma_pos     = [0.001]#, 0.01, 0.05]   # metres
     Sigma_theta   = [0.0017]#, 0.017, 0.09]   # radians
     Sigma_encoder = [0.0009]#, 0.009, 0.017]   # radians
-    K = [10]
-    Movement_pattern = [(-pi/2, pi/2),(-pi/2, 0),(-pi/4, pi/4),(-pi/8,pi/8),(-pi*3/8,-pi/8)]
+    K = [15]
+    Movement_pattern = [
+        [(0,0),(0,0), "No movement"],
+        [(-pi/2, pi/2),(0,0), "Parent only"],
+        [(0,0),(-pi/2, pi/2), "Child only"],
+        [(-pi/2, pi/2),(-pi/2, pi/2), "-90 to 90 deg"],
+        [(-pi/2, 0),(-pi/2, 0), "-90 to 0 deg"],
+        [(-pi/12, pi/12),(-pi/12, pi/12), "-15 to 15 deg"],
+        ]
     states = []
     for k in K:
         for sigma_pos, sigma_theta in zip(Sigma_pos, Sigma_theta):
@@ -209,7 +216,7 @@ def main():
             if diag:
                 for cid, d in diag.items():
                     est = d["cj_estimate"]
-                    connected = (disc.limb_id,cid) in {(0,1),(1,2),(3,4),(4,5),(6,7),(7,8)}
+                    connected = (disc.limb_id,cid) in {(0,1),(2,3),(4,5)}
                     rows.append({
                         "sigma_pos":     sigma_pos,
                         "sigma_theta":   sigma_theta,
@@ -223,14 +230,15 @@ def main():
                         "cj_x":          est.x()     if est is not None else float("nan"),
                         "cj_y":          est.y()     if est is not None else float("nan"),
                         "cj_theta":      est.theta() if est is not None else float("nan"),
-                        "movement_low":  movement[0],
-                        "movement_high": movement[1]
+                        "movement_name": movement[2]
                     })                    
 
         # Random joint motion
         for i in range(n):
             if abs(all_qpos_flat[i] - targets[i]) < threshold:
-                targets[i] = np.random.uniform(movement[0], movement[1])
+                limb_id = i%2
+                targets[i] = np.random.uniform(movement[limb_id][0], movement[limb_id][1])
+                throw = np.random.uniform(movement[limb_id][0], movement[limb_id][1])
         ctrl_flat = np.array(targets)
 
         # Split flat ctrl back into per-robot arrays
@@ -245,7 +253,7 @@ def main():
         robot_specs,
         joint_controller=joint_controller,
         control_hz=10.0,
-        trail_length=200
+        trail_length=0
     )
 
 if __name__ == "__main__":

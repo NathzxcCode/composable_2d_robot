@@ -140,8 +140,17 @@ def main():
 
     Sigma_range = [0.001]#, 0.01, 0.05]
     Sigma_encoder = [0.0009]#, 0.009, 0.017]
-    Window_size = [20]
-    Movement_pattern = [(-pi/2, pi/2),(-pi/2, 0),(-pi/4, pi/4),(-pi/8,pi/8),(-pi*3/8,-pi/8)]
+    Window_size = [15]
+    Movement_pattern = [
+            [(0,0),(0,0), "No movement"],
+            [(-pi/2, pi/2),(0,0), "Parent only"],
+            [(0,0),(-pi/2, pi/2), "Child only"],
+            [(-pi/2, pi/2),(-pi/2, pi/2), "-90 to 90 deg"],
+            [(-pi/2, 0),(-pi/2, 0), "-90 to 0 deg"],
+            [(-pi/12, pi/12),(-pi/12, pi/12), "-15 to 15 deg"],
+            [(-pi/6, pi/6),(-pi/6, pi/6), "-30 to 30 deg"],
+            [(-pi*5/12, -pi/12),(-pi*5/12, -pi/12), "-75 to -15 deg"],
+            ]
     states = []
     rows = []
     for window_size in Window_size:
@@ -156,7 +165,7 @@ def main():
         "current_state": current_state,
         "fg": FactorGraph(sigma_range=current_state[0], sigma_encoder=current_state[1], window_size=current_state[2]),
         "calibs_collected" : 0,
-        "calibs_needed" : 5
+        "calibs_needed" : 10
     }
 
     robot_data = {
@@ -167,7 +176,7 @@ def main():
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         if State["calibs_collected"] >= State["calibs_needed"]:
             if len(State["states"]) == 0:
-                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "calib_results/results_calibration_3_20.csv")
+                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "calib_results/results_calibration_3_15.csv")
                 df = pd.DataFrame(rows)
                 df.to_csv(OUTPUT_CSV, index=False)
                 print(f"[INFO] Saved {len(rows)} rows to {OUTPUT_CSV}")
@@ -214,8 +223,9 @@ def main():
                         "cov_01":        c["cov_xy"][0][1],
                         "cov_10":        c["cov_xy"][1][0],
                         "cov_11":        c["cov_xy"][1][1],
-                        "movement_low":  movement[0],
-                        "movement_high": movement[1]
+                        "movement_name": movement[2]
+                        # "movement_low":  movement[0],
+                        # "movement_high": movement[1]
                             })
 
             print(fg.t)
@@ -226,13 +236,14 @@ def main():
         # Random joint motion
         for i in range(n):
             if abs(qpos[i] - targets[i]) < threshold:
-                targets[i] = np.random.uniform(movement[0], movement[1])
+                limb_id = i%2
+                targets[i] = np.random.uniform(movement[limb_id][0], movement[limb_id][1])
         actions = np.array(targets)
         calibrations = [_to_3d_calib(c) for c in raw_calibs]
 
         return actions, calibrations
 
-    run_simulation(limbs, controller=controller, control_hz=50.0, trail_length=600)
+    run_simulation(limbs, controller=controller, control_hz=50.0, trail_length=0)
 
 
 if __name__ == "__main__":

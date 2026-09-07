@@ -265,7 +265,7 @@ def main():
         robot_specs,
         joint_controller=joint_controller,
         control_hz=10.0,
-        trail_length=200
+        trail_length=0
     )
 
 if __name__ == "__main__":

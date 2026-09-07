@@ -106,7 +106,7 @@ def main():
         LimbSpec(
             length=0.15, radius=0.02, density=500.0,
             attach_pos=[0.13, 0.0, 0.0], 
-            attach_euler=[0.0, 0.0, 0.0],
+            attach_euler=[0.0, 0.0, 1.03],
             joint_axis=[0.0, 0.0, 1.0],
             joint_damping=0.4,
             sensor_pos=[0.12, 0.0, 0.0],
@@ -115,34 +115,34 @@ def main():
         ),
         LimbSpec(
             length=0.15, radius=0.02, density=500.0,
-            attach_pos=[0.15, 0.019, 0.0],    
-            attach_euler=[0.0, 0.0, 0.0],
+            attach_pos=[0.13, 0.019, 0.0],    
+            attach_euler=[0.0, 0.0, 0.02],
             joint_axis=[0.0, 0.0, 1.0],
             joint_damping=0.4,
             sensor_pos=[0.12, 0.0, 0.0],
             joint_centre=0.0,
             joint_range=pi / 2,
         ),
-        LimbSpec(
-            length=0.15, radius=0.02, density=500.0,
-            attach_pos=[0.13, -0.019, 0.0],    
-            attach_euler=[0.0, 0.0, 0.0],
-            joint_axis=[0.0, 0.0, 1.0],
-            joint_damping=0.4,
-            sensor_pos=[0.12, 0.0, 0.0],
-            joint_centre=0.0,
-            joint_range=pi / 2,
-        ),
-        LimbSpec(
-            length=0.15, radius=0.02, density=500.0,
-            attach_pos=[0.10, 0.01, 0.0],    
-            attach_euler=[0.0, 0.0, 0.0],
-            joint_axis=[0.0, 0.0, 1.0],
-            joint_damping=0.4,
-            sensor_pos=[0.12, 0.0, 0.0],
-            joint_centre=0.0,
-            joint_range=pi / 2,
-        ),
+        # LimbSpec(
+        #     length=0.15, radius=0.02, density=500.0,
+        #     attach_pos=[0.15, -0.019, 0.0],    
+        #     attach_euler=[0.0, 0.0, 0.0],
+        #     joint_axis=[0.0, 0.0, 1.0],
+        #     joint_damping=0.4,
+        #     sensor_pos=[0.12, 0.0, 0.0],
+        #     joint_centre=0.0,
+        #     joint_range=pi / 2,
+        # ),
+        # LimbSpec(
+        #     length=0.15, radius=0.02, density=500.0,
+        #     attach_pos=[0.10, 0.001, 0.0],    
+        #     attach_euler=[0.0, 0.0, 0.0],
+        #     joint_axis=[0.0, 0.0, 1.0],
+        #     joint_damping=0.4,
+        #     sensor_pos=[0.12, 0.0, 0.0],
+        #     joint_centre=0.0,
+        #     joint_range=pi / 2,
+        # ),
     ]
 
     n = len(limbs)
@@ -153,9 +153,9 @@ def main():
     limb_lengths = [l.length for l in limbs]
     true_calibrations = [[round(limbs[i+1].attach_pos[0]-limbs[i].length,2),limbs[i+1].attach_pos[1]] for i in range(n-1)]
 
-    Sigma_range = [0.001, 0.01, 0.05]
-    Sigma_encoder = [0.0009, 0.009, 0.017]
-    Window_size = [20]
+    Sigma_range = [0.001]#, 0.01, 0.05]
+    Sigma_encoder = [0.0009]#, 0.009, 0.017]
+    Window_size = [15]
     states = []
     rows = []
     for window_size in Window_size:
@@ -169,7 +169,7 @@ def main():
         "current_state": current_state,
         "fg": FactorGraph(sigma_range=current_state[0], sigma_encoder=current_state[1], window_size=current_state[2]),
         "calibs_collected" : 0,
-        "calibs_needed" : 5
+        "calibs_needed" : 10
     }
 
     robot_data = {
@@ -180,7 +180,7 @@ def main():
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         if State["calibs_collected"] >= State["calibs_needed"]:
             if len(State["states"]) == 0:
-                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "calib_results/results_calibration_1_lm.csv")
+                OUTPUT_CSV = os.path.join(os.path.dirname(__file__), "calib_results/results_calibration_1_15_rot.csv")
                 df = pd.DataFrame(rows)
                 df.to_csv(OUTPUT_CSV, index=False)
                 print(f"[INFO] Saved {len(rows)} rows to {OUTPUT_CSV}")
@@ -204,8 +204,8 @@ def main():
         # operate calibration after small delays to give robot time to move and be in a different pose
         if (t - robot_data["last_fg_update_time"]) >= FG_UPDATE_INTERVAL:
             fg.update_factor_graph(robot_data)
-            # fg.gbp_solve(n_outer=2, n_inner=15)
-            fg.centralised_solve()
+            fg.gbp_solve(n_outer=2, n_inner=15)
+            # fg.centralised_solve()
             robot_data["last_fg_update_time"] = t
 
             raw_calibs = fg.extract_calibrations()
