@@ -89,6 +89,16 @@ def main():
             joint_centre=0.0,
             joint_range=np.pi / 2,
         ),
+        LimbSpec(
+            length=0.15, radius=0.015, density=500.0,
+            attach_pos=[0.15, 0.0, 0.0],
+            attach_euler=[0.0, 0.0, 0.0],
+            joint_axis=[0.0, 0.0, 1.0],
+            joint_damping=0.4,
+            sensor_pos=[0.12, 0.0, 0.0],
+            joint_centre=0.0,
+            joint_range=np.pi / 2,
+        ),                                                      ####
         # LimbSpec(
         #     length=0.15, radius=0.015, density=500.0,
         #     attach_pos=[0.15, 0.0, 0.0],
@@ -109,21 +119,58 @@ def main():
         #     joint_centre=0.0,
         #     joint_range=np.pi / 2,
         # ),
+        # LimbSpec(
+        #     length=0.15, radius=0.015, density=500.0,
+        #     attach_pos=[0.15, 0.0, 0.0],
+        #     attach_euler=[0.0, 0.0, 0.0],
+        #     joint_axis=[0.0, 0.0, 1.0],
+        #     joint_damping=0.4,
+        #     sensor_pos=[0.12, 0.0, 0.0],
+        #     joint_centre=0.0,
+        #     joint_range=np.pi / 2,
+        # ),
+        # LimbSpec(
+        #     length=0.15, radius=0.015, density=500.0,
+        #     attach_pos=[0.15, 0.0, 0.0],
+        #     attach_euler=[0.0, 0.0, 0.0],
+        #     joint_axis=[0.0, 0.0, 1.0],
+        #     joint_damping=0.4,
+        #     sensor_pos=[0.12, 0.0, 0.0],
+        #     joint_centre=0.0,
+        #     joint_range=np.pi / 2,
+        # ),
+        # LimbSpec(
+        #     length=0.15, radius=0.015, density=500.0,
+        #     attach_pos=[0.15, 0.0, 0.0],
+        #     attach_euler=[0.0, 0.0, 0.0],
+        #     joint_axis=[0.0, 0.0, 1.0],
+        #     joint_damping=0.4,
+        #     sensor_pos=[0.12, 0.0, 0.0],
+        #     joint_centre=0.0,
+        #     joint_range=np.pi / 2,
+        # ),
+
     ]
 
     n = len(limbs)
+    dt4 = [0.1,0.2,0.3]
+
     waypoints = [
             # [(0.2, 0.35), (0.15, 0.25), (0.0, 0.43)],   # robot 0
-            [(0.6*(n*0.15), 0.6*(n*0.15))]
+            [(0.3*(n*0.15), 0.4*(n*0.15))]
         ]
     goal_idx = [0]
-    ARRIVAL_THR = 0.02
+    ARRIVAL_THR = 0.04
 
     save = {"is": 0,
             "endpoints": [],
             "n": n}
 
-    fg = PlanningGraph([limbs], [waypoints[0][0]], time_horizon=10, dt=[0.05]*9, sigma_endpoint=5, sigma_joint=1)
+    initial_plan = [None]   # planned_positions from the first optimisation (t=0)
+    final_state  = [None]   # planned_positions(0)[0] when goal is first reached
+    goal_reached = [False]
+
+    fg = PlanningGraph([limbs], [waypoints[0][0]], time_horizon=4, dt=dt4, sigma_endpoint=5, sigma_joint=1)
 
     plt.ion()
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -157,6 +204,57 @@ def main():
         if save:
             plt.savefig(filepath, dpi=150)# bbox_inches="tight"
 
+    def _draw_final_plot(filepath):
+        # Fixed 4×4 in at 150 DPI → always 600×600 px, suitable for a 3×3 grid.
+        fig2, ax2 = plt.subplots(figsize=(4, 4))
+        # Fixed margins so every saved PNG has identical pixel dimensions.
+        fig2.subplots_adjust(left=0.10, right=0.97, top=0.97, bottom=0.10)
+
+        # Axis limits: cover the full arm workspace with a small margin so
+        # every subplot shares the same relative scale for its robot size.
+        max_reach = n * 0.15
+        pad = 0.08 * max_reach
+        ax2.set_xlim(-0.1, max_reach + pad)
+        ax2.set_ylim(-0.8, 1)
+        ax2.set_aspect('equal')
+        ax2.grid(True, linewidth=0.5, alpha=0.5)
+        ax2.tick_params(labelsize=7)
+
+        # -- initial planned trajectory (first optimisation, all horizon timesteps)
+        if initial_plan[0] is not None:
+            n_steps = len(initial_plan[0])
+            for k, pts in enumerate(initial_plan[0]):
+                alpha = 0.25 + 0.75 * k / max(n_steps - 1, 1)
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                ax2.plot(xs, ys, '-o', color='tab:orange', alpha=alpha,
+                         linewidth=1, markersize=3)
+
+        # -- end-effector trajectory over the whole execution
+        if save["endpoints"]:
+            pxs = [p[0] for p in save["endpoints"]]
+            pys = [p[1] for p in save["endpoints"]]
+            ax2.plot(pxs, pys, color='black', linewidth=1.2,
+                     markersize=1, zorder=5)
+
+        # -- final robot arm state (distinct colour)
+        if final_state[0] is not None:
+            xs = [p[0] for p in final_state[0]]
+            ys = [p[1] for p in final_state[0]]
+            ax2.plot(xs, ys, '-o', color='tab:green', linewidth=2,
+                     markersize=5, zorder=6)
+
+        # -- goal position
+        gx, gy = waypoints[0][goal_idx[0]]
+        ax2.plot(gx, gy, marker='*', color='gold', markersize=14,
+                 markeredgecolor='darkorange', markeredgewidth=0.5,
+                 linewidth=0, zorder=7)
+
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        fig2.savefig(filepath, dpi=150)
+        plt.close(fig2)
+        print(f"Final plot saved to {filepath}")
+
     def controller(qpos, qvel, spos, joint_positions, joint_rotations, t):
         # Build ground-truth [x, y, theta] per joint from MuJoCo state.
         # joint_positions[i] = world-space anchor of joint i (3D).
@@ -171,10 +269,14 @@ def main():
             for pos, rot in zip(joint_positions, joint_rotations)
         ])
         ctrl = fg.gbp_solve([(qpos, joint_poses)], goals=[target],
-                            n_inner=60, 
-                            n_outer=1, damping=0)[0]
+                            n_inner=96, 
+                            n_outer=2, damping=0.5)[0]
         # ctrl = fg.centralised_solve([(qpos, joint_poses)], goals=[target])[0]
         # print("ctrl ", ctrl)
+
+        # Capture the very first planned trajectory (t=0 initial guess)
+        if initial_plan[0] is None:
+            initial_plan[0] = fg.planned_positions(0)
 
         
 
@@ -193,9 +295,14 @@ def main():
                 if goal_idx[r] + 1 < len(waypoints[r]):
                     goal_idx[r] = (goal_idx[r] + 1)
                 save["is"] = 1
+                if not goal_reached[0]:
+                    goal_reached[0] = True
+                    final_state[0] = fg.planned_positions(0)[0]
+                    filepath = os.path.join(os.path.dirname(__file__), f"planning_results/results_planning_1_7_41.png")
+                    _draw_final_plot(filepath)
 
-        filepath = os.path.join(os.path.dirname(__file__), f"planning_results/results_planning_1_{save['n']}.png")
-        _draw_plan(ax, filepath, points=save["endpoints"], save=save["is"]==0)
+        filepath = os.path.join(os.path.dirname(__file__), f"planning_results/results_planning_1_3_4.png")
+        _draw_plan(ax, filepath, points=save["endpoints"], save=False)
         save["is"] -= 1 
         return ctrl, []
 

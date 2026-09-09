@@ -39,7 +39,7 @@ def _make_planar_limbs():
     ]
 
 
-ARRIVAL_THR = 0.007  # metres — distance at which a waypoint is considered reached
+ARRIVAL_THR = 0.01  # metres — distance at which a waypoint is considered reached
 
 def main():
     limbs_0 = _make_planar_limbs()
@@ -65,8 +65,8 @@ def main():
         time_horizon=4, dt=[0.1, 0.2, 0.4],
         enable_collision_avoidance=True,
         collision_radius=0.03,
-        collision_k=2.8,
-        collision_sigma=0.16,
+        collision_k=2,
+        collision_sigma=0.1,
         sigma_endpoint=5
     )
 
