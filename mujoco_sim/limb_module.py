@@ -8,6 +8,11 @@ root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(root_path)
 from gtsam_examples.gtsam_factors import make_calib_kinematics_factor, make_fixed_kinematics_factor
 from gtsam_gbp import GBPParams, DistributedGBPOptimizer
+from planning_loop import (
+    _J, _E, _V, _VE,
+    KINEMATIC_NOISE, ANCHOR_NOISE, LOOSE_ANCHOR_NOISE, GOAL_NOISE,
+    _make_task_space_dynamics_factor, _make_joint_space_dynamics_factor,
+)
 
 RIGID_KINEMATIC_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1e-4, 1e-4, 1e-4]))
 CALIB_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([10.0, 10.0, 0.001]))
@@ -68,6 +73,16 @@ class LimbModule:
 
         self.inbox = {}
         self._optimizer = None
+
+        # Planning layer - separate graph/values from the calibration layer above, own
+        # optimizer, built once by initialise_planning() rather than grown every tick.
+        self.robot_id = 0  # single robot for now, kept for the key scheme's future use
+        self.planning_graph = gtsam.NonlinearFactorGraph()
+        self.planning_values = gtsam.Values()
+        self._planning_dof_map = {}
+        self._planning_optimizer = None
+        self.time_horizon = None
+        self.dt = None
 
     def _live_slots(self):
         return range(min(self.t, self.window_size))
@@ -196,18 +211,185 @@ class LimbModule:
                 pass
         return {"id": label, "mean": [float(pose.x()), float(pose.y())], "cov_xy": cov_xy}
 
+    def connection_length(self) -> float:
+        # Nominal transform from this limb's own joint to its child's - just the physical
+        # length for now. Later this can compose in the learned CJ offset instead; every
+        # kinematics factor below goes through this one method so that's a one-line change.
+        return self.limb_spec.length
 
-def run_distributed_gbp(modules, n_outer=8, n_inner=8, damping=0.0) -> None:
+    def initialise_planning(self, own_pose_guess, child_pose_guess=None, goal_xy=None,
+                             time_horizon=5, dt=None, sigma_endpoint=10.0, sigma_joint=1.0,
+                             base_xy=(0.0, 0.0)) -> None:
+        """Build this limb's slice of the receding-horizon planning graph, once. Mirrors
+        PlanningGraph._setup_robot, scoped to one limb: own J/V chain + dynamics always;
+        anchor if root; foreign J(child,k) placeholders + the connecting kinematics factor
+        if non-leaf; end-effector J/V + task-space dynamics + goal prior if leaf."""
+        assert dt is not None and len(dt) == time_horizon - 1
+        self.time_horizon = time_horizon
+        self.dt = dt
+
+        for k in range(time_horizon):
+            self.planning_values.insert(_J(self.robot_id, self.limb_id, k), own_pose_guess)
+            self.planning_values.insert(_V(self.robot_id, self.limb_id, k), np.array([0.0]))
+            self._planning_dof_map[_J(self.robot_id, self.limb_id, k)] = 3
+            self._planning_dof_map[_V(self.robot_id, self.limb_id, k)] = 1
+
+            if self.is_root:
+                anchor_noise = ANCHOR_NOISE if k == 0 else LOOSE_ANCHOR_NOISE
+                idx = self.planning_graph.size()
+                self.planning_graph.add(gtsam.PriorFactorPose2(
+                    _J(self.robot_id, self.limb_id, k),
+                    gtsam.Pose2(base_xy[0], base_xy[1], 0.0), anchor_noise))
+                if k == 0:
+                    self._plan_idx_anchor0 = idx
+
+            if self.has_child:
+                self.planning_values.insert(_J(self.robot_id, self.child_id, k), child_pose_guess)
+                self._planning_dof_map[_J(self.robot_id, self.child_id, k)] = 3
+                idx = self.planning_graph.size()
+                self.planning_graph.add(make_fixed_kinematics_factor(
+                    _J(self.robot_id, self.limb_id, k), _J(self.robot_id, self.child_id, k),
+                    self.connection_length(), 0.0, LOOSE_ANCHOR_NOISE))
+                if k == 0:
+                    self._plan_idx_kin0 = idx
+            else:
+                # Leaf owns the end-effector outright - no need to treat it as a separate
+                # module, the connecting factor stays entirely local.
+                end_pose = own_pose_guess.compose(gtsam.Pose2(self.connection_length(), 0.0, 0.0))
+                self.planning_graph.add(make_fixed_kinematics_factor(
+                    _J(self.robot_id, self.limb_id, k), _E(self.robot_id, self.limb_id, k),
+                    self.connection_length(), 0.0, KINEMATIC_NOISE))
+                self.planning_values.insert(_E(self.robot_id, self.limb_id, k), end_pose)
+                self.planning_values.insert(_VE(self.robot_id, self.limb_id, k), np.array([0.0, 0.0]))
+                self._planning_dof_map[_E(self.robot_id, self.limb_id, k)] = 3
+                self._planning_dof_map[_VE(self.robot_id, self.limb_id, k)] = 2
+
+        for k in range(time_horizon - 1):
+            self.planning_graph.add(_make_joint_space_dynamics_factor(
+                _J(self.robot_id, self.limb_id, k), _V(self.robot_id, self.limb_id, k),
+                _J(self.robot_id, self.limb_id, k + 1), _V(self.robot_id, self.limb_id, k + 1),
+                dt[k], sigma_joint))
+            if not self.has_child:
+                self.planning_graph.add(_make_task_space_dynamics_factor(
+                    _E(self.robot_id, self.limb_id, k), _VE(self.robot_id, self.limb_id, k),
+                    _E(self.robot_id, self.limb_id, k + 1), _VE(self.robot_id, self.limb_id, k + 1),
+                    dt[k], sigma_endpoint))
+
+        if not self.has_child and goal_xy is not None:
+            self._plan_idx_goal = self.planning_graph.size()
+            self.planning_graph.add(gtsam.PriorFactorPose2(
+                _E(self.robot_id, self.limb_id, time_horizon - 1),
+                gtsam.Pose2(goal_xy[0], goal_xy[1], 0.0), GOAL_NOISE))
+
+    def update_goal(self, goal_xy) -> None:
+        # Leaf only - the goal prior sits on the end-effector, which only the leaf owns.
+        if self.has_child or not hasattr(self, "_plan_idx_goal"):
+            return
+        self.planning_graph.replace(self._plan_idx_goal, gtsam.PriorFactorPose2(
+            _E(self.robot_id, self.limb_id, self.time_horizon - 1),
+            gtsam.Pose2(goal_xy[0], goal_xy[1], 0.0), GOAL_NOISE))
+
+    def planning_foreign_keys(self) -> set:
+        if not self.has_child:
+            return set()
+        return {_J(self.robot_id, self.child_id, k) for k in range(self.time_horizon)}
+
+    def planning_remote_link_keys(self) -> set:
+        if self.is_root:
+            return set()
+        return {_J(self.robot_id, self.limb_id, k) for k in range(self.time_horizon)}
+
+    def pre_solve_planning(self, own_qpos0, own_pose0, child_qpos0=None) -> None:
+        """Ground k=0 to the measured state. Mirrors PlanningGraph._pre_solve: every limb
+        updates its own k=0 pose; the parent also swaps its k=0 connecting factor's baked-in
+        angle from the loose "free to plan" 0.0 to the real measured child encoder angle."""
+        self.planning_values.update(_J(self.robot_id, self.limb_id, 0), own_pose0)
+
+        if self.is_root:
+            self.planning_graph.replace(self._plan_idx_anchor0, gtsam.PriorFactorPose2(
+                _J(self.robot_id, self.limb_id, 0), own_pose0, ANCHOR_NOISE))
+
+        if self.has_child:
+            self.planning_graph.replace(self._plan_idx_kin0, make_fixed_kinematics_factor(
+                _J(self.robot_id, self.limb_id, 0), _J(self.robot_id, self.child_id, 0),
+                self.connection_length(), float(child_qpos0), KINEMATIC_NOISE))
+        else:
+            end_pose = own_pose0.compose(gtsam.Pose2(self.connection_length(), 0.0, 0.0))
+            self.planning_values.update(_E(self.robot_id, self.limb_id, 0), end_pose)
+
+    def build_planning_optimizer(self, n_outer=8, n_inner=20, damping=0.0) -> DistributedGBPOptimizer:
+        if self.planning_values.size() == 0:
+            self._planning_optimizer = None
+            return None
+        params = GBPParams(n_outer=n_outer, n_inner=n_inner, damping=damping)
+        self._planning_optimizer = DistributedGBPOptimizer(
+            self.planning_graph, self.planning_values, params,
+            dof_map=self._planning_dof_map,
+            foreign_keys=self.planning_foreign_keys(),
+            remote_link_keys=self.planning_remote_link_keys())
+        return self._planning_optimizer
+
+    def apply_planning_optimizer_result(self) -> None:
+        if self._planning_optimizer is not None:
+            self.planning_values = self._planning_optimizer.values
+
+    def post_solve_rotate_planning(self) -> None:
+        """Shift this module's own receding window forward one step, including its own
+        copy of the child's foreign placeholders. Mirrors PlanningGraph._post_solve_rotate,
+        purely local - no messages needed for a time-shift within one module."""
+        for k in range(self.time_horizon):
+            next_k = k + 1 if k < self.time_horizon - 1 else k
+            self.planning_values.update(_J(self.robot_id, self.limb_id, k),
+                self.planning_values.atPose2(_J(self.robot_id, self.limb_id, next_k)))
+            self.planning_values.update(_V(self.robot_id, self.limb_id, k),
+                self.planning_values.atVector(_V(self.robot_id, self.limb_id, next_k)))
+            if self.has_child:
+                self.planning_values.update(_J(self.robot_id, self.child_id, k),
+                    self.planning_values.atPose2(_J(self.robot_id, self.child_id, next_k)))
+            else:
+                self.planning_values.update(_E(self.robot_id, self.limb_id, k),
+                    self.planning_values.atPose2(_E(self.robot_id, self.limb_id, next_k)))
+                self.planning_values.update(_VE(self.robot_id, self.limb_id, k),
+                    self.planning_values.atVector(_VE(self.robot_id, self.limb_id, next_k)))
+
+    def extract_planned_theta(self, k=1) -> float:
+        # Own absolute angle only - the demo driver subtracts adjacent modules' values to
+        # get the relative ctrl an actuator expects (a module never reads a neighbour's own,
+        # non-foreign variable directly - that would bypass the mailbox pattern entirely).
+        return self.planning_values.atPose2(_J(self.robot_id, self.limb_id, k)).theta()
+
+    def planned_position(self, k) -> tuple:
+        # For drawing the planned horizon - mirrors PlanningGraph.planned_positions, one
+        # module's own joint position at a time; the driver assembles the full arm's line.
+        p = self.planning_values.atPose2(_J(self.robot_id, self.limb_id, k))
+        return (p.x(), p.y())
+
+    def planned_endpoint(self, k) -> tuple:
+        # Leaf only - the arm's tip.
+        p = self.planning_values.atPose2(_E(self.robot_id, self.limb_id, k))
+        return (p.x(), p.y())
+
+
+def run_distributed_gbp(modules, n_outer=8, n_inner=8, damping=0.0,
+                         build_fn=None, apply_fn=None) -> None:
     """
     One synchronous distributed GBP solve across all modules: every module relinearizes
     locally, then for n_inner rounds every module computes its local messages and all
     modules exchange mailboxes before updating beliefs. Mirrors FactorGraph.gbp_solve,
     just fanned out over one DistributedGBPOptimizer per module.
+
+    build_fn/apply_fn pick which per-module optimizer this drives - default to the
+    calibration layer. For the planning layer pass e.g.
+        build_fn=lambda m: m.build_planning_optimizer(n_outer, n_inner, damping)
+        apply_fn=lambda m: m.apply_planning_optimizer_result()
     """
+    build_fn = build_fn or (lambda m: m.build_optimizer(n_outer, n_inner, damping))
+    apply_fn = apply_fn or (lambda m: m.apply_optimizer_result())
+
     by_id = {m.limb_id: m for m in modules}
     optimizers = {}
     for m in modules:
-        opt = m.build_optimizer(n_outer, n_inner, damping)
+        opt = build_fn(m)
         if opt is not None:
             optimizers[m.limb_id] = opt
     if not optimizers:
@@ -223,11 +405,12 @@ def run_distributed_gbp(modules, n_outer=8, n_inner=8, damping=0.0) -> None:
 
             inboxes = {lid: {} for lid in optimizers}
             for lid, opt in optimizers.items():
-                parent_id = by_id[lid].parent_id
+                module = by_id[lid]
                 for key, msg in opt.get_outgoing().items():
-                    # A foreign-key message goes to whoever owns that key; a remote-link
-                    # message (this module's own belief) goes up to its parent.
-                    dest = key_owner(key) if key in opt.foreign_keys else parent_id
+                    # A foreign-key message goes to this module's child; a remote-link
+                    # message (this module's own belief) goes up to its parent. Neither
+                    # needs decoding the key itself - the module already knows both ids.
+                    dest = module.child_id if key in opt.foreign_keys else module.parent_id
                     if dest in inboxes:
                         inboxes[dest][key] = msg
 
@@ -241,4 +424,4 @@ def run_distributed_gbp(modules, n_outer=8, n_inner=8, damping=0.0) -> None:
             opt.retract()
 
     for m in modules:
-        m.apply_optimizer_result()
+        apply_fn(m)

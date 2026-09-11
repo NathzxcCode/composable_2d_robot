@@ -36,6 +36,7 @@ def _make_planar_limbs():
             joint_axis=[0.0, 0.0, 1.0], joint_damping=0.4,
             sensor_pos=[0.12, 0.0, 0.0], joint_centre=0.0, joint_range=np.pi / 2,
         ),
+        
     ]
 
 
