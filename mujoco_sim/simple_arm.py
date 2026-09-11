@@ -48,7 +48,7 @@ def main():
         ),
         LimbSpec(
             length=0.15, radius=0.015, density=500.0,
-            attach_pos=[0.10, 0.0, 0.0],
+            attach_pos=[0.15, 0.0, 0.0],
             attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 1.0, 0.0],
             joint_damping=0.4,
@@ -58,7 +58,7 @@ def main():
         ),
         LimbSpec(
             length=0.07, radius=0.012, density=500.0,
-            attach_pos=[0.13, 0.0, 0.0],
+            attach_pos=[0.15, 0.0, 0.0],
             attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 1.0, 0.0],
             joint_damping=0.3,
@@ -68,7 +68,7 @@ def main():
         ),
         LimbSpec(
             length=0.04, radius=0.010, density=500.0,
-            attach_pos=[0.06, 0.0, 0.0],
+            attach_pos=[0.07, 0.0, 0.0],
             attach_euler=[0.0, 0.0, 0.0],
             joint_axis=[0.0, 0.0, 1.0],
             joint_damping=0.2,
